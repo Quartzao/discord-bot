@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionsBitField } = require('discord.js');
 
 // Create the bot client
 const client = new Client({
@@ -11,12 +11,15 @@ const client = new Client({
   ]
 });
 
-const prefix = "c"; // Your command prefix
+const prefix = "c!"; // Your command prefix
 let coins = {}; // Store users' coins data
 let levels = {}; // Store users' XP and level data
 let relationships = {}; // Store relationship statuses
 let quotes = []; // Store quotes for users to display
 let polls = []; // Store polls
+let streaks = {}; // Daily streaks for claiming rewards
+let stores = {}; // Items purchased by users
+let petitions = []; // Petitions created by users
 
 // Register commands when the bot is ready
 client.on('ready', async () => {
@@ -48,7 +51,42 @@ client.on('ready', async () => {
       .setDescription('Create a custom poll')
       .addStringOption(option => option.setName('question').setDescription('Poll question').setRequired(true))
       .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true))
-      .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true))
+      .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('quote')
+      .setDescription('Show a random quote or save your own quote')
+      .addStringOption(option => option.setName('quote').setDescription('Quote to add')),
+
+    new SlashCommandBuilder()
+      .setName('shoutout')
+      .setDescription('Give a shoutout to a user')
+      .addUserOption(option => option.setName('target').setDescription('User to shoutout')),
+
+    new SlashCommandBuilder()
+      .setName('help')
+      .setDescription('Show all available commands'),
+
+    new SlashCommandBuilder()
+      .setName('petition')
+      .setDescription('Create a petition')
+      .addStringOption(option => option.setName('title').setDescription('Petition Title').setRequired(true))
+      .addStringOption(option => option.setName('description').setDescription('Petition Description').setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName('weather')
+      .setDescription('Get the current weather')
+      .addStringOption(option => option.setName('location').setDescription('Location for weather')),
+
+    new SlashCommandBuilder()
+      .setName('store')
+      .setDescription('View or purchase items from the store')
+      .addStringOption(option => option.setName('item').setDescription('Item to buy')),
+
+    new SlashCommandBuilder()
+      .setName('leaderboard')
+      .setDescription('Show the top users by coins or levels')
+      .addStringOption(option => option.setName('type').setDescription('Leaderboard type (coins or levels)'))
   ].map(command => command.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
@@ -74,7 +112,14 @@ client.on('interactionCreate', async interaction => {
   const question = interaction.options.getString('question');
   const option1 = interaction.options.getString('option1');
   const option2 = interaction.options.getString('option2');
+  const quoteText = interaction.options.getString('quote');
+  const petitionTitle = interaction.options.getString('title');
+  const petitionDescription = interaction.options.getString('description');
+  const location = interaction.options.getString('location');
+  const item = interaction.options.getString('item');
+  const leaderboardType = interaction.options.getString('type');
 
+  // Profile command
   if (interaction.commandName === 'profile') {
     const profileEmbed = new EmbedBuilder()
       .setColor('#00FF00')
@@ -86,6 +131,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({ embeds: [profileEmbed] });
   }
 
+  // Marry command
   if (interaction.commandName === 'marry') {
     if (relationships[userId]) return interaction.reply({ content: 'You are already in a relationship!' });
 
@@ -104,6 +150,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({ embeds: [marriageEmbed] });
   }
 
+  // Poll command
   if (interaction.commandName === 'poll') {
     const pollEmbed = new EmbedBuilder()
       .setColor('#0000FF')
@@ -116,89 +163,73 @@ client.on('interactionCreate', async interaction => {
 
     await interaction.reply({ embeds: [pollEmbed] });
   }
-});
 
-// Prefix command handling
-client.on('messageCreate', async message => {
-  if (message.author.bot || !message.content.startsWith(prefix)) return;
-
-  // Simulate typing before replying
-  message.channel.sendTyping(); // Makes the bot appear as if it's typing
-  
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-  const userId = message.author.id;
-
-  // Initialize if no data exists for user
-  if (!coins[userId]) coins[userId] = 0;
-  if (!levels[userId]) levels[userId] = 1;
-
-  // Increment XP for leveling
-  levels[userId] += 1; // Increment by 1 for each message
-  if (levels[userId] % 10 === 0) {
-    // Every 10 levels, send a special message
-    message.reply(`🎉 Congratulations ${message.author.username}! You've reached level ${levels[userId]}! 🎉`);
-  }
-
-  if (command === 'balance') {
-    setTimeout(() => {
-      const balanceEmbed = new EmbedBuilder()
-        .setColor('#00FF00')
-        .setTitle(`${message.author.username}'s Balance`)
-        .setDescription(`You have **${coins[userId]}** coins.`)
-        .setTimestamp()
-        .setFooter({ text: 'Bot Powered by CoolBot' });
-
-      message.reply({ embeds: [balanceEmbed] });
-    }, 2000);
-  }
-
-  if (command === 'claim') {
-    setTimeout(() => {
-      coins[userId] += 100;
-      saveCoins();
-      
-      const claimEmbed = new EmbedBuilder()
+  // Quote command
+  if (interaction.commandName === 'quote') {
+    if (quoteText) {
+      quotes.push(quoteText);
+      await interaction.reply(`Quote added: "${quoteText}"`);
+    } else {
+      const randomQuote = quotes[Math.floor(Math.random() * quotes.length)] || 'No quotes available yet!';
+      const quoteEmbed = new EmbedBuilder()
         .setColor('#FFD700')
-        .setTitle('Coin Claim')
-        .setDescription(`You claimed 100 coins! You now have **${coins[userId]}**.`)
+        .setTitle('Random Quote')
+        .setDescription(randomQuote)
         .setTimestamp()
         .setFooter({ text: 'Bot Powered by CoolBot' });
-
-      message.reply({ embeds: [claimEmbed] });
-    }, 2000);
+      await interaction.reply({ embeds: [quoteEmbed] });
+    }
   }
 
-  if (command === 'give') {
-    const target = message.mentions.users.first();
-    const amount = parseInt(args[1]);
+  // Shoutout command
+  if (interaction.commandName === 'shoutout') {
+    if (!target) return interaction.reply({ content: 'You need to specify a user for a shoutout!' });
+    const shoutoutEmbed = new EmbedBuilder()
+      .setColor('#FF1493')
+      .setTitle('Shoutout!')
+      .setDescription(`${target.tag}, you are amazing!`)
+      .setTimestamp()
+      .setFooter({ text: 'Bot Powered by CoolBot' });
+    await interaction.reply({ embeds: [shoutoutEmbed] });
+  }
 
-    if (!target || isNaN(amount) || amount <= 0) {
-      return message.reply("Usage: `cgive @user 100`");
-    }
+  // Petition command
+  if (interaction.commandName === 'petition') {
+    petitions.push({ title: petitionTitle, description: petitionDescription, createdBy: interaction.user.tag });
+    const petitionEmbed = new EmbedBuilder()
+      .setColor('#32CD32')
+      .setTitle('New Petition Created')
+      .setDescription(`Title: ${petitionTitle}\nDescription: ${petitionDescription}\nCreated by: ${interaction.user.tag}`)
+      .setTimestamp()
+      .setFooter({ text: 'Bot Powered by CoolBot' });
+    await interaction.reply({ embeds: [petitionEmbed] });
+  }
 
-    if (!coins[target.id]) coins[target.id] = 0;
-    if (coins[userId] < amount) return message.reply("You don't have enough coins!");
+  // Store command (stub)
+  if (interaction.commandName === 'store') {
+    const storeEmbed = new EmbedBuilder()
+      .setColor('#8A2BE2')
+      .setTitle('Store')
+      .setDescription(`Items in the store: [Example Item - 100 Coins]`)
+      .setTimestamp()
+      .setFooter({ text: 'Bot Powered by CoolBot' });
+    await interaction.reply({ embeds: [storeEmbed] });
+  }
 
-    setTimeout(() => {
-      coins[userId] -= amount;
-      coins[target.id] += amount;
-      saveCoins();
-
-      const giveEmbed = new EmbedBuilder()
-        .setColor('#1E90FF')
-        .setTitle('Coin Transfer')
-        .setDescription(`You gave **${amount}** coins to ${target.tag}.`)
-        .setTimestamp()
-        .setFooter({ text: 'Bot Powered by CoolBot' });
-
-      message.reply({ embeds: [giveEmbed] });
-    }, 2000);
+  // Leaderboard command
+  if (interaction.commandName === 'leaderboard') {
+    const leaderboardEmbed = new EmbedBuilder()
+      .setColor('#FF4500')
+      .setTitle(`${leaderboardType ? leaderboardType : 'Leaderboard'}`)
+      .setDescription(`Top users by ${leaderboardType || 'coins'}`)
+      .setTimestamp()
+      .setFooter({ text: 'Bot Powered by CoolBot' });
+    await interaction.reply({ embeds: [leaderboardEmbed] });
   }
 });
 
 // Utility function to save user data to the database (placeholder)
-function saveCoins() {
+function saveData() {
   // Implement your database save logic here
 }
 
