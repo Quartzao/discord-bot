@@ -1,5 +1,18 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField } = require('discord.js');
+const fs = require('fs');  // Import fs for file system operations
+
+// Set up the coins file and functions
+const COINS_FILE = './coins.json';
+let coins = {};
+
+if (fs.existsSync(COINS_FILE)) {
+  coins = JSON.parse(fs.readFileSync(COINS_FILE));
+}
+
+function saveCoins() {
+  fs.writeFileSync(COINS_FILE, JSON.stringify(coins, null, 2));
+}
 
 const client = new Client({
   intents: [
@@ -10,7 +23,7 @@ const client = new Client({
   ]
 });
 
-const prefix = "c"; // Your command prefix
+const prefix = "c"; // Command prefix
 
 client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -74,14 +87,17 @@ client.on('messageCreate', async message => {
 
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
+  const userId = message.author.id;
   const target = message.mentions.users.first();
-
-  if (!target) return message.reply('You need to mention a user.');
-
   const member = message.guild.members.cache.get(message.author.id);
-  const victim = message.guild.members.cache.get(target.id);
+  const victim = target ? message.guild.members.cache.get(target.id) : null;
 
+  // Initialize user's coins if not already
+  if (!coins[userId]) coins[userId] = 0;
+
+  // === Moderation ===
   if (command === 'kick') {
+    if (!target) return message.reply('You need to mention a user.');
     if (!member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
       return message.reply("You can't kick members.");
     }
@@ -90,22 +106,15 @@ client.on('messageCreate', async message => {
   }
 
   if (command === 'ban') {
+    if (!target) return message.reply('You need to mention a user.');
     if (!member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
       return message.reply("You can't ban members.");
     }
     if (victim) await victim.ban();
     message.reply(`${target.tag} was banned.`);
   }
-});
-client.on('messageCreate', async message => {
-  if (message.author.bot || !message.content.startsWith(prefix)) return;
 
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-  const userId = message.author.id;
-
-  if (!coins[userId]) coins[userId] = 0;
-
+  // === Coins ===
   if (command === 'balance') {
     message.reply(`You have **${coins[userId]}** coins.`);
   }
@@ -117,9 +126,7 @@ client.on('messageCreate', async message => {
   }
 
   if (command === 'give') {
-    const target = message.mentions.users.first();
     const amount = parseInt(args[1]);
-
     if (!target || isNaN(amount) || amount <= 0) {
       return message.reply("Usage: `cgive @user 100`");
     }
