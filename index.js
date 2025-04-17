@@ -1,6 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionsBitField } = require('discord.js');
-const fs = require('fs');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField, EmbedBuilder } = require('discord.js');
 
 // Create the bot client
 const client = new Client({
@@ -8,19 +7,18 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
-  ]
+    GatewayIntentBits.GuildMembers,
+  ],
 });
 
-// Prefix and other variables
-const prefix = 'c!';
-let coins = {};
-let levels = {};
-let relationships = {};
-let quotes = [];
-let polls = {};
+const prefix = 'c!'; // Your command prefix
+let coins = {}; // Store users' coins data
+let levels = {}; // Store users' XP and level data
+let relationships = {}; // Store relationship statuses
+let quotes = []; // Store quotes for users to display
+let polls = []; // Store polls
+let customImages = {}; // Store custom images for embeds per server
 let customEmbeds = {}; // Store custom embed templates per server
-let customImages = {}; // Store custom images per server
 
 // Register commands when the bot is ready
 client.on('ready', async () => {
@@ -31,13 +29,13 @@ client.on('ready', async () => {
     new SlashCommandBuilder()
       .setName('kick')
       .setDescription('Kick a user')
-      .addUserOption(option => option.setName('target').setDescription('User to kick')),
-    
+      .addUserOption((option) => option.setName('target').setDescription('User to kick')),
+
     new SlashCommandBuilder()
       .setName('ban')
       .setDescription('Ban a user')
-      .addUserOption(option => option.setName('target').setDescription('User to ban')),
-    
+      .addUserOption((option) => option.setName('target').setDescription('User to ban')),
+
     new SlashCommandBuilder()
       .setName('profile')
       .setDescription('Show your profile with level and coins'),
@@ -45,46 +43,42 @@ client.on('ready', async () => {
     new SlashCommandBuilder()
       .setName('marry')
       .setDescription('Propose to a user')
-      .addUserOption(option => option.setName('target').setDescription('User to propose to')),
+      .addUserOption((option) => option.setName('target').setDescription('User to propose to')),
 
     new SlashCommandBuilder()
       .setName('poll')
       .setDescription('Create a custom poll')
-      .addStringOption(option => option.setName('question').setDescription('Poll question').setRequired(true))
-      .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true))
-      .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true)),
+      .addStringOption((option) => option.setName('question').setDescription('Poll question').setRequired(true))
+      .addStringOption((option) => option.setName('option1').setDescription('First option').setRequired(true))
+      .addStringOption((option) => option.setName('option2').setDescription('Second option').setRequired(true)),
 
     new SlashCommandBuilder()
       .setName('setwelcome')
-      .setDescription('Set a custom welcome message for new members')
-      .addStringOption(option => option.setName('message').setDescription('Welcome message').setRequired(true)),
+      .setDescription('Set a custom welcome message for the server')
+      .addStringOption((option) => option.setName('message').setDescription('Welcome message').setRequired(true)),
 
     new SlashCommandBuilder()
       .setName('setleave')
-      .setDescription('Set a custom leave message for users leaving')
-      .addStringOption(option => option.setName('message').setDescription('Leave message').setRequired(true)),
+      .setDescription('Set a custom leave message for the server')
+      .addStringOption((option) => option.setName('message').setDescription('Leave message').setRequired(true)),
 
     new SlashCommandBuilder()
       .setName('setembed')
-      .setDescription('Set custom embed template')
-      .addStringOption(option => option.setName('embed_type').setDescription('Embed type (e.g., profile, poll)').setRequired(true))
-      .addStringOption(option => option.setName('message').setDescription('Message to set in the embed').setRequired(true)),
-    
+      .setDescription('Set a custom embed template for your server')
+      .addStringOption((option) => option.setName('embedtype').setDescription('Embed type to set').setRequired(true))
+      .addStringOption((option) => option.setName('embedmessage').setDescription('Embed message').setRequired(true)),
+
     new SlashCommandBuilder()
       .setName('setimage')
-      .setDescription('Set a custom image for a specific embed')
-      .addStringOption(option => option.setName('embed_type').setDescription('Embed type (e.g., profile, poll)').setRequired(true))
-      .addStringOption(option => option.setName('image_url').setDescription('Image URL').setRequired(true))
-  ].map(command => command.toJSON());
+      .setDescription('Set a custom image for the server')
+      .addStringOption((option) => option.setName('imageurl').setDescription('URL of the image').setRequired(true)),
+  ].map((command) => command.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
   try {
     console.log('Registering slash commands...');
-    await rest.put(
-      Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
-      { body: commands }
-    );
+    await rest.put(Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID), { body: commands });
     console.log('Slash commands registered.');
   } catch (error) {
     console.error('Failed to register commands:', error);
@@ -100,11 +94,10 @@ client.on('interactionCreate', async (interaction) => {
   const question = interaction.options.getString('question');
   const option1 = interaction.options.getString('option1');
   const option2 = interaction.options.getString('option2');
-  const message = interaction.options.getString('message');
-  const embedType = interaction.options.getString('embed_type');
-  const imageUrl = interaction.options.getString('image_url');
+  const embedType = interaction.options.getString('embedtype');
+  const embedMessage = interaction.options.getString('embedmessage');
+  const imageUrl = interaction.options.getString('imageurl');
 
-  // Profile command
   if (interaction.commandName === 'profile') {
     const profileEmbed = new EmbedBuilder()
       .setColor('#00FF00')
@@ -116,7 +109,6 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.reply({ embeds: [profileEmbed] });
   }
 
-  // Marry command
   if (interaction.commandName === 'marry') {
     if (relationships[userId]) return interaction.reply({ content: 'You are already in a relationship!' });
 
@@ -135,7 +127,6 @@ client.on('interactionCreate', async (interaction) => {
     await interaction.reply({ embeds: [marriageEmbed] });
   }
 
-  // Poll command
   if (interaction.commandName === 'poll') {
     const pollEmbed = new EmbedBuilder()
       .setColor('#0000FF')
@@ -144,43 +135,38 @@ client.on('interactionCreate', async (interaction) => {
       .setTimestamp()
       .setFooter({ text: 'Bot Powered by CoolBot' });
 
-    polls[question] = { options: [option1, option2], votes: [0, 0] };
+    polls.push({ question, options: [option1, option2], votes: [0, 0] });
 
     await interaction.reply({ embeds: [pollEmbed] });
   }
 
-  // Set custom welcome message
   if (interaction.commandName === 'setwelcome') {
-    customEmbeds[interaction.guildId] = customEmbeds[interaction.guildId] || {};
-    customEmbeds[interaction.guildId].welcome = message;
-    await interaction.reply({ content: `Welcome message has been set!` });
+    customEmbeds[interaction.guild.id] = { welcomeMessage: embedMessage };
+    await interaction.reply({ content: `Welcome message set!` });
   }
 
-  // Set custom leave message
   if (interaction.commandName === 'setleave') {
-    customEmbeds[interaction.guildId] = customEmbeds[interaction.guildId] || {};
-    customEmbeds[interaction.guildId].leave = message;
-    await interaction.reply({ content: `Leave message has been set!` });
+    customEmbeds[interaction.guild.id] = { leaveMessage: embedMessage };
+    await interaction.reply({ content: `Leave message set!` });
   }
 
-  // Set custom embed template
   if (interaction.commandName === 'setembed') {
-    customEmbeds[interaction.guildId] = customEmbeds[interaction.guildId] || {};
-    customEmbeds[interaction.guildId][embedType] = message;
-    await interaction.reply({ content: `${embedType} embed template has been set!` });
+    customEmbeds[interaction.guild.id] = { [embedType]: embedMessage };
+    await interaction.reply({ content: `${embedType} embed set!` });
   }
 
-  // Set custom image for an embed
   if (interaction.commandName === 'setimage') {
-    customImages[interaction.guildId] = customImages[interaction.guildId] || {};
-    customImages[interaction.guildId][embedType] = imageUrl;
-    await interaction.reply({ content: `Image for ${embedType} embed has been set!` });
+    customImages[interaction.guild.id] = imageUrl;
+    await interaction.reply({ content: `Custom image set!` });
   }
 });
 
 // Prefix command handling
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.content.startsWith(prefix)) return;
+
+  // Simulate typing before replying
+  message.channel.sendTyping(); // Makes the bot appear as if it's typing
 
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
@@ -190,33 +176,74 @@ client.on('messageCreate', async (message) => {
   if (!coins[userId]) coins[userId] = 0;
   if (!levels[userId]) levels[userId] = 1;
 
-  if (command === 'balance') {
-    const balanceEmbed = new EmbedBuilder()
-      .setColor('#00FF00')
-      .setTitle(`${message.author.username}'s Balance`)
-      .setDescription(`You have **${coins[userId]}** coins.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    message.reply({ embeds: [balanceEmbed] });
+  // Increment XP for leveling
+  levels[userId] += 1; // Increment by 1 for each message
+  if (levels[userId] % 10 === 0) {
+    // Every 10 levels, send a special message
+    message.reply(`🎉 Congratulations ${message.author.username}! You've reached level ${levels[userId]}! 🎉`);
   }
 
-  // Custom messages on join/leave
-  if (message.guild && customEmbeds[message.guild.id]) {
-    const welcomeMessage = customEmbeds[message.guild.id].welcome;
-    const leaveMessage = customEmbeds[message.guild.id].leave;
+  if (command === 'balance') {
+    setTimeout(() => {
+      const balanceEmbed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle(`${message.author.username}'s Balance`)
+        .setDescription(`You have **${coins[userId]}** coins.`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
 
-    message.guild.members.cache.forEach(member => {
-      if (member.user.bot) return;
-      member.send(welcomeMessage);
-    });
+      message.reply({ embeds: [balanceEmbed] });
+    }, 2000);
+  }
 
-    message.guild.members.cache.forEach(member => {
-      if (member.user.bot) return;
-      member.send(leaveMessage);
-    });
+  if (command === 'claim') {
+    setTimeout(() => {
+      coins[userId] += 100;
+      saveCoins();
+
+      const claimEmbed = new EmbedBuilder()
+        .setColor('#FFD700')
+        .setTitle('Coin Claim')
+        .setDescription(`You claimed 100 coins! You now have **${coins[userId]}**.`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
+
+      message.reply({ embeds: [claimEmbed] });
+    }, 2000);
+  }
+
+  if (command === 'give') {
+    const target = message.mentions.users.first();
+    const amount = parseInt(args[1]);
+
+    if (!target || isNaN(amount) || amount <= 0) {
+      return message.reply('Usage: `cgive @user 100`');
+    }
+
+    if (!coins[target.id]) coins[target.id] = 0;
+    if (coins[userId] < amount) return message.reply("You don't have enough coins!");
+
+    setTimeout(() => {
+      coins[userId] -= amount;
+      coins[target.id] += amount;
+      saveCoins();
+
+      const giveEmbed = new EmbedBuilder()
+        .setColor('#1E90FF')
+        .setTitle('Coin Transfer')
+        .setDescription(`You gave **${amount}** coins to ${target.tag}.`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
+
+      message.reply({ embeds: [giveEmbed] });
+    }, 2000);
   }
 });
+
+// Utility function to save user data to the database (placeholder)
+function saveCoins() {
+  // Implement your database save logic here
+}
 
 // Log the bot in
 client.login(process.env.TOKEN);
