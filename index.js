@@ -1,13 +1,7 @@
 require('dotenv').config();
-const fs = require('fs');
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField, EmbedBuilder } = require('discord.js');
 
-const COINS_FILE = './coins.json';
-let coins = fs.existsSync(COINS_FILE) ? JSON.parse(fs.readFileSync(COINS_FILE)) : {};
-function saveCoins() {
-  fs.writeFileSync(COINS_FILE, JSON.stringify(coins, null, 2));
-}
-
+// Create the bot client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -17,173 +11,196 @@ const client = new Client({
   ]
 });
 
-const prefix = 'c';
-let currentAnswer = null;
-const mathChannelId = '1359467591642648742';
+const prefix = "c"; // Your command prefix
+let coins = {}; // Store users' coins data
+let levels = {}; // Store users' XP and level data
+let relationships = {}; // Store relationship statuses
+let quotes = []; // Store quotes for users to display
+let polls = []; // Store polls
 
+// Register commands when the bot is ready
 client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // Register slash commands
+  // Slash command registration
   const commands = [
     new SlashCommandBuilder()
       .setName('kick')
       .setDescription('Kick a user')
       .addUserOption(option => option.setName('target').setDescription('User to kick')),
+
     new SlashCommandBuilder()
       .setName('ban')
       .setDescription('Ban a user')
-      .addUserOption(option => option.setName('target').setDescription('User to ban'))
+      .addUserOption(option => option.setName('target').setDescription('User to ban')),
+
+    new SlashCommandBuilder()
+      .setName('profile')
+      .setDescription('Show your profile with level and coins'),
+
+    new SlashCommandBuilder()
+      .setName('marry')
+      .setDescription('Propose to a user')
+      .addUserOption(option => option.setName('target').setDescription('User to propose to')),
+
+    new SlashCommandBuilder()
+      .setName('poll')
+      .setDescription('Create a custom poll')
+      .addStringOption(option => option.setName('question').setDescription('Poll question').setRequired(true))
+      .addStringOption(option => option.setName('option1').setDescription('First option').setRequired(true))
+      .addStringOption(option => option.setName('option2').setDescription('Second option').setRequired(true))
   ].map(command => command.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
   try {
+    console.log('Registering slash commands...');
     await rest.put(
       Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
       { body: commands }
     );
     console.log('Slash commands registered.');
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error('Failed to register commands:', error);
   }
-
-  // Start math problem interval
-  sendMathProblem();
-  setInterval(sendMathProblem, 60 * 60 * 1000); // every hour
 });
 
-// === Slash commands ===
+// Slash command handling
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  const userId = interaction.user.id;
   const target = interaction.options.getUser('target');
-  const member = interaction.guild.members.cache.get(interaction.user.id);
+  const question = interaction.options.getString('question');
+  const option1 = interaction.options.getString('option1');
+  const option2 = interaction.options.getString('option2');
 
-  if (interaction.commandName === 'kick') {
-    if (!member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-      return interaction.reply({ embeds: [errorEmbed("You can’t kick members.")], ephemeral: true });
-    }
-    const victim = interaction.guild.members.cache.get(target.id);
-    if (victim) await victim.kick();
-    interaction.reply({ embeds: [successEmbed(`${target.tag} was kicked.`)] });
+  if (interaction.commandName === 'profile') {
+    const profileEmbed = new EmbedBuilder()
+      .setColor('#00FF00')
+      .setTitle(`${interaction.user.username}'s Profile`)
+      .setDescription(`Level: ${levels[userId] || 1}\nCoins: ${coins[userId] || 0}\nRelationship: ${relationships[userId] || 'Single'}`)
+      .setTimestamp()
+      .setFooter({ text: 'Bot Powered by CoolBot' });
+
+    await interaction.reply({ embeds: [profileEmbed] });
   }
 
-  if (interaction.commandName === 'ban') {
-    if (!member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return interaction.reply({ embeds: [errorEmbed("You can’t ban members.")], ephemeral: true });
-    }
-    const victim = interaction.guild.members.cache.get(target.id);
-    if (victim) await victim.ban();
-    interaction.reply({ embeds: [successEmbed(`${target.tag} was banned.`)] });
+  if (interaction.commandName === 'marry') {
+    if (relationships[userId]) return interaction.reply({ content: 'You are already in a relationship!' });
+
+    if (!target) return interaction.reply({ content: 'You need to specify a user to propose to!' });
+
+    relationships[userId] = `Married to ${target.tag}`;
+    relationships[target.id] = `Married to ${interaction.user.tag}`;
+
+    const marriageEmbed = new EmbedBuilder()
+      .setColor('#FF00FF')
+      .setTitle('Marriage Proposal')
+      .setDescription(`Congratulations! ${interaction.user.tag} and ${target.tag} are now married.`)
+      .setTimestamp()
+      .setFooter({ text: 'Bot Powered by CoolBot' });
+
+    await interaction.reply({ embeds: [marriageEmbed] });
+  }
+
+  if (interaction.commandName === 'poll') {
+    const pollEmbed = new EmbedBuilder()
+      .setColor('#0000FF')
+      .setTitle('Poll')
+      .setDescription(`**${question}**\n\n1️⃣ ${option1}\n2️⃣ ${option2}`)
+      .setTimestamp()
+      .setFooter({ text: 'Bot Powered by CoolBot' });
+
+    polls.push({ question, options: [option1, option2], votes: [0, 0] });
+
+    await interaction.reply({ embeds: [pollEmbed] });
   }
 });
 
-// === Prefix commands ===
+// Prefix command handling
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.content.startsWith(prefix)) return;
+
+  // Simulate typing before replying
+  message.channel.sendTyping(); // Makes the bot appear as if it's typing
+  
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
   const userId = message.author.id;
-  const target = message.mentions.users.first();
-  const member = message.guild.members.cache.get(message.author.id);
-  const victim = target ? message.guild.members.cache.get(target.id) : null;
 
+  // Initialize if no data exists for user
   if (!coins[userId]) coins[userId] = 0;
+  if (!levels[userId]) levels[userId] = 1;
 
-  // Moderation
-  if (command === 'kick') {
-    if (!target) return message.reply({ embeds: [errorEmbed("You must mention a user.")] });
-    if (!member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-      return message.reply({ embeds: [errorEmbed("You can’t kick members.")] });
-    }
-    if (victim) await victim.kick();
-    return message.reply({ embeds: [successEmbed(`${target.tag} was kicked.`)] });
+  // Increment XP for leveling
+  levels[userId] += 1; // Increment by 1 for each message
+  if (levels[userId] % 10 === 0) {
+    // Every 10 levels, send a special message
+    message.reply(`🎉 Congratulations ${message.author.username}! You've reached level ${levels[userId]}! 🎉`);
   }
 
-  if (command === 'ban') {
-    if (!target) return message.reply({ embeds: [errorEmbed("You must mention a user.")] });
-    if (!member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return message.reply({ embeds: [errorEmbed("You can’t ban members.")] });
-    }
-    if (victim) await victim.ban();
-    return message.reply({ embeds: [successEmbed(`${target.tag} was banned.`)] });
-  }
-
-  // Economy
   if (command === 'balance') {
-    return message.reply({ embeds: [infoEmbed(`You have **${coins[userId]}** coins.`)] });
+    setTimeout(() => {
+      const balanceEmbed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle(`${message.author.username}'s Balance`)
+        .setDescription(`You have **${coins[userId]}** coins.`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
+
+      message.reply({ embeds: [balanceEmbed] });
+    }, 2000);
   }
 
   if (command === 'claim') {
-    coins[userId] += 100;
-    saveCoins();
-    return message.reply({ embeds: [successEmbed(`You claimed 100 coins! New balance: **${coins[userId]}**.`)] });
+    setTimeout(() => {
+      coins[userId] += 100;
+      saveCoins();
+      
+      const claimEmbed = new EmbedBuilder()
+        .setColor('#FFD700')
+        .setTitle('Coin Claim')
+        .setDescription(`You claimed 100 coins! You now have **${coins[userId]}**.`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
+
+      message.reply({ embeds: [claimEmbed] });
+    }, 2000);
   }
 
   if (command === 'give') {
+    const target = message.mentions.users.first();
     const amount = parseInt(args[1]);
+
     if (!target || isNaN(amount) || amount <= 0) {
-      return message.reply({ embeds: [errorEmbed("Usage: `cgive @user 100`")] });
+      return message.reply("Usage: `cgive @user 100`");
     }
 
     if (!coins[target.id]) coins[target.id] = 0;
-    if (coins[userId] < amount) {
-      return message.reply({ embeds: [errorEmbed("You don't have enough coins!")] });
-    }
+    if (coins[userId] < amount) return message.reply("You don't have enough coins!");
 
-    coins[userId] -= amount;
-    coins[target.id] += amount;
-    saveCoins();
-    return message.reply({ embeds: [successEmbed(`You gave **${amount}** coins to ${target.tag}.`)] });
+    setTimeout(() => {
+      coins[userId] -= amount;
+      coins[target.id] += amount;
+      saveCoins();
+
+      const giveEmbed = new EmbedBuilder()
+        .setColor('#1E90FF')
+        .setTitle('Coin Transfer')
+        .setDescription(`You gave **${amount}** coins to ${target.tag}.`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
+
+      message.reply({ embeds: [giveEmbed] });
+    }, 2000);
   }
 });
 
-// === Math problem ===
-function sendMathProblem() {
-  const num1 = Math.floor(Math.random() * 50 + 1);
-  const num2 = Math.floor(Math.random() * 50 + 1);
-  const operator = ['+', '-', '*'][Math.floor(Math.random() * 3)];
-  currentAnswer = eval(`${num1} ${operator} ${num2}`);
-
-  const embed = new EmbedBuilder()
-    .setTitle('Hourly Math Challenge!')
-    .setDescription(`Solve this: **${num1} ${operator} ${num2}**\nFirst correct answer wins **100 coins**!`)
-    .setColor('Yellow');
-
-  const channel = client.channels.cache.get(mathChannelId);
-  if (channel) channel.send({ embeds: [embed] });
+// Utility function to save user data to the database (placeholder)
+function saveCoins() {
+  // Implement your database save logic here
 }
 
-client.on('messageCreate', async message => {
-  if (message.channel.id !== mathChannelId || message.author.bot || currentAnswer === null) return;
-
-  if (parseInt(message.content) === currentAnswer) {
-    const userId = message.author.id;
-    if (!coins[userId]) coins[userId] = 0;
-    coins[userId] += 100;
-    saveCoins();
-
-    const embed = new EmbedBuilder()
-      .setTitle('Correct!')
-      .setDescription(`${message.author} got it right and earned **100 coins**!`)
-      .setColor('Green');
-
-    message.channel.send({ embeds: [embed] });
-    currentAnswer = null;
-  }
-});
-
-// === Embed helper functions ===
-function successEmbed(text) {
-  return new EmbedBuilder().setDescription(text).setColor('Green');
-}
-
-function errorEmbed(text) {
-  return new EmbedBuilder().setDescription(text).setColor('Red');
-}
-
-function infoEmbed(text) {
-  return new EmbedBuilder().setDescription(text).setColor('Blue');
-}
-
+// Log the bot in
 client.login(process.env.TOKEN);
