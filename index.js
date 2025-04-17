@@ -1,11 +1,10 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField, EmbedBuilder } = require('discord.js');
 const { Low, JSONFile } = require('lowdb');
-const path = require('path');
 
-// Create the database
-const db = new Low(new JSONFile(path.join(__dirname, 'db.json')));
-db.data ||= { users: {}, polls: {} }; // Default structure
+// Initialize Lowdb
+const db = new Low(new JSONFile('db.json'));
+db.data = db.data || { coins: {}, levels: {}, relationships: {}, quotes: [], polls: [] };
 
 // Create the bot client
 const client = new Client({
@@ -18,6 +17,11 @@ const client = new Client({
 });
 
 const prefix = "c"; // Your command prefix
+let coins = db.data.coins; // Store users' coins data
+let levels = db.data.levels; // Store users' XP and level data
+let relationships = db.data.relationships; // Store relationship statuses
+let quotes = db.data.quotes; // Store quotes for users to display
+let polls = db.data.polls; // Store polls
 
 // Register commands when the bot is ready
 client.on('ready', async () => {
@@ -68,185 +72,148 @@ client.on('ready', async () => {
 
 // Slash command handling
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+  try {
+    if (!interaction.isChatInputCommand()) return;
 
-  const userId = interaction.user.id;
-  const target = interaction.options.getUser('target');
-  const question = interaction.options.getString('question');
-  const option1 = interaction.options.getString('option1');
-  const option2 = interaction.options.getString('option2');
+    const userId = interaction.user.id;
+    const target = interaction.options.getUser('target');
+    const question = interaction.options.getString('question');
+    const option1 = interaction.options.getString('option1');
+    const option2 = interaction.options.getString('option2');
 
-  if (interaction.commandName === 'profile') {
-    // Ensure user data exists
-    if (!db.data.users[userId]) {
-      db.data.users[userId] = { coins: 0, level: 1, xp: 0, relationship: 'Single' };
+    if (interaction.commandName === 'profile') {
+      const profileEmbed = new EmbedBuilder()
+        .setColor('#00FF00')
+        .setTitle(`${interaction.user.username}'s Profile`)
+        .setDescription(`Level: ${levels[userId] || 1}\nCoins: ${coins[userId] || 0}\nRelationship: ${relationships[userId] || 'Single'}`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
+
+      await interaction.reply({ embeds: [profileEmbed] });
     }
 
-    const profileEmbed = new EmbedBuilder()
-      .setColor('#00FF00')
-      .setTitle(`${interaction.user.username}'s Profile`)
-      .setDescription(`Level: ${db.data.users[userId].level}\nCoins: ${db.data.users[userId].coins}\nRelationship: ${db.data.users[userId].relationship}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
+    if (interaction.commandName === 'marry') {
+      if (relationships[userId]) return interaction.reply({ content: 'You are already in a relationship!' });
 
-    await interaction.reply({ embeds: [profileEmbed] });
-  }
+      if (!target) return interaction.reply({ content: 'You need to specify a user to propose to!' });
 
-  if (interaction.commandName === 'marry') {
-    if (db.data.users[userId].relationship !== 'Single') {
-      return interaction.reply({ content: 'You are already in a relationship!' });
+      relationships[userId] = `Married to ${target.tag}`;
+      relationships[target.id] = `Married to ${interaction.user.tag}`;
+
+      const marriageEmbed = new EmbedBuilder()
+        .setColor('#FF00FF')
+        .setTitle('Marriage Proposal')
+        .setDescription(`Congratulations! ${interaction.user.tag} and ${target.tag} are now married.`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
+
+      await interaction.reply({ embeds: [marriageEmbed] });
     }
 
-    if (!target) return interaction.reply({ content: 'You need to specify a user to propose to!' });
+    if (interaction.commandName === 'poll') {
+      const pollEmbed = new EmbedBuilder()
+        .setColor('#0000FF')
+        .setTitle('Poll')
+        .setDescription(`**${question}**\n\n1️⃣ ${option1}\n2️⃣ ${option2}`)
+        .setTimestamp()
+        .setFooter({ text: 'Bot Powered by CoolBot' });
 
-    db.data.users[userId].relationship = `Married to ${target.tag}`;
-    db.data.users[target.id] = { ...db.data.users[target.id], relationship: `Married to ${interaction.user.tag}` };
+      polls.push({ question, options: [option1, option2], votes: [0, 0] });
 
-    const marriageEmbed = new EmbedBuilder()
-      .setColor('#FF00FF')
-      .setTitle('Marriage Proposal')
-      .setDescription(`Congratulations! ${interaction.user.tag} and ${target.tag} are now married.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    await interaction.reply({ embeds: [marriageEmbed] });
-  }
-
-  if (interaction.commandName === 'poll') {
-    const pollEmbed = new EmbedBuilder()
-      .setColor('#0000FF')
-      .setTitle('Poll')
-      .setDescription(`**${question}**\n\n1️⃣ ${option1}\n2️⃣ ${option2}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    db.data.polls.push({ question, options: [option1, option2], votes: [0, 0] });
-
-    await interaction.reply({ embeds: [pollEmbed] });
-  }
-
-  // Moderation commands
-  if (interaction.commandName === 'kick') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-      return interaction.reply({ content: 'You don\'t have permission to kick members.', ephemeral: true });
+      await interaction.reply({ embeds: [pollEmbed] });
     }
-
-    if (!target) return interaction.reply({ content: 'You need to specify a user to kick.' });
-
-    const member = await interaction.guild.members.fetch(target.id);
-    await member.kick();
-
-    const kickEmbed = new EmbedBuilder()
-      .setColor('#FF0000')
-      .setTitle('Kick')
-      .setDescription(`Successfully kicked **${target.tag}**.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    await interaction.reply({ embeds: [kickEmbed] });
-  }
-
-  if (interaction.commandName === 'ban') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return interaction.reply({ content: 'You don\'t have permission to ban members.', ephemeral: true });
-    }
-
-    if (!target) return interaction.reply({ content: 'You need to specify a user to ban.' });
-
-    const member = await interaction.guild.members.fetch(target.id);
-    await member.ban();
-
-    const banEmbed = new EmbedBuilder()
-      .setColor('#FF0000')
-      .setTitle('Ban')
-      .setDescription(`Successfully banned **${target.tag}**.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    await interaction.reply({ embeds: [banEmbed] });
+  } catch (error) {
+    console.error('Error handling interaction:', error);
   }
 });
 
-// Prefix command handling (Economy and Leveling)
+// Prefix command handling
 client.on('messageCreate', async message => {
-  if (message.author.bot || !message.content.startsWith(prefix)) return;
+  try {
+    if (message.author.bot || !message.content.startsWith(prefix)) return;
 
-  // Simulate typing before replying
-  message.channel.sendTyping(); // Makes the bot appear as if it's typing
-  
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-  const userId = message.author.id;
+    // Simulate typing before replying
+    message.channel.sendTyping(); // Makes the bot appear as if it's typing
 
-  // Ensure user data exists
-  if (!db.data.users[userId]) {
-    db.data.users[userId] = { coins: 0, level: 1, xp: 0, relationship: 'Single' };
-  }
+    const args = message.content.slice(prefix.length).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+    const userId = message.author.id;
 
-  const user = db.data.users[userId];
+    // Initialize if no data exists for user
+    if (!coins[userId]) coins[userId] = 0;
+    if (!levels[userId]) levels[userId] = 1;
 
-  // Add XP for leveling
-  user.xp += 10; // Add 10 XP for each message
-  if (user.xp >= user.level * 100) { // Level-up condition
-    user.xp = 0; // Reset XP
-    user.level += 1; // Level up
-    user.coins += 100; // Reward coins on level up
-    message.reply(`🎉 Congratulations ${message.author.username}! You've reached level ${user.level}! You earned 100 coins! 🎉`);
-  }
-
-  if (command === 'balance') {
-    const balanceEmbed = new EmbedBuilder()
-      .setColor('#00FF00')
-      .setTitle(`${message.author.username}'s Balance`)
-      .setDescription(`You have **${user.coins}** coins.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    message.reply({ embeds: [balanceEmbed] });
-  }
-
-  if (command === 'claim') {
-    user.coins += 100;
-    const claimEmbed = new EmbedBuilder()
-      .setColor('#FFD700')
-      .setTitle('Coin Claim')
-      .setDescription(`You claimed 100 coins! You now have **${user.coins}**.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    message.reply({ embeds: [claimEmbed] });
-  }
-
-  if (command === 'give') {
-    const target = message.mentions.users.first();
-    const amount = parseInt(args[1]);
-
-    if (!target || isNaN(amount) || amount <= 0) {
-      return message.reply("Usage: `cgive @user 100`");
+    // Increment XP for leveling
+    levels[userId] += 1; // Increment by 1 for each message
+    if (levels[userId] % 10 === 0) {
+      // Every 10 levels, send a special message
+      message.reply(`🎉 Congratulations ${message.author.username}! You've reached level ${levels[userId]}! 🎉`);
     }
 
-    const targetUser = db.data.users[target.id];
-    if (!targetUser) {
-      db.data.users[target.id] = { coins: 0, level: 1, xp: 0, relationship: 'Single' };
+    if (command === 'balance') {
+      setTimeout(() => {
+        const balanceEmbed = new EmbedBuilder()
+          .setColor('#00FF00')
+          .setTitle(`${message.author.username}'s Balance`)
+          .setDescription(`You have **${coins[userId]}** coins.`)
+          .setTimestamp()
+          .setFooter({ text: 'Bot Powered by CoolBot' });
+
+        message.reply({ embeds: [balanceEmbed] });
+      }, 2000);
     }
 
-    if (user.coins < amount) return message.reply("You don't have enough coins!");
+    if (command === 'claim') {
+      setTimeout(() => {
+        coins[userId] += 100;
+        saveCoins();
 
-    user.coins -= amount;
-    targetUser.coins += amount;
+        const claimEmbed = new EmbedBuilder()
+          .setColor('#FFD700')
+          .setTitle('Coin Claim')
+          .setDescription(`You claimed 100 coins! You now have **${coins[userId]}**.`)
+          .setTimestamp()
+          .setFooter({ text: 'Bot Powered by CoolBot' });
 
-    const giveEmbed = new EmbedBuilder()
-      .setColor('#1E90FF')
-      .setTitle('Coin Transfer')
-      .setDescription(`You gave **${amount}** coins to ${target.tag}.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
+        message.reply({ embeds: [claimEmbed] });
+      }, 2000);
+    }
 
-    message.reply({ embeds: [giveEmbed] });
+    if (command === 'give') {
+      const target = message.mentions.users.first();
+      const amount = parseInt(args[1]);
+
+      if (!target || isNaN(amount) || amount <= 0) {
+        return message.reply("Usage: `cgive @user 100`");
+      }
+
+      if (!coins[target.id]) coins[target.id] = 0;
+      if (coins[userId] < amount) return message.reply("You don't have enough coins!");
+
+      setTimeout(() => {
+        coins[userId] -= amount;
+        coins[target.id] += amount;
+        saveCoins();
+
+        const giveEmbed = new EmbedBuilder()
+          .setColor('#1E90FF')
+          .setTitle('Coin Transfer')
+          .setDescription(`You gave **${amount}** coins to ${target.tag}.`)
+          .setTimestamp()
+          .setFooter({ text: 'Bot Powered by CoolBot' });
+
+        message.reply({ embeds: [giveEmbed] });
+      }, 2000);
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
   }
-
-  await db.write(); // Save data to database
 });
+
+// Utility function to save user data to the database (placeholder)
+function saveCoins() {
+  db.write();
+}
 
 // Log the bot in
 client.login(process.env.TOKEN);
