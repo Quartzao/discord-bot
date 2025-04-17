@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder } = require('discord.js');
 
 // Create the bot client
 const client = new Client({
@@ -7,18 +7,18 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-  ],
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
-const prefix = 'c!'; // Your command prefix
+const prefix = "c!"; // Your command prefix
 let coins = {}; // Store users' coins data
 let levels = {}; // Store users' XP and level data
 let relationships = {}; // Store relationship statuses
 let quotes = []; // Store quotes for users to display
 let polls = []; // Store polls
-let customImages = {}; // Store custom images for embeds per server
-let customEmbeds = {}; // Store custom embed templates per server
+let customMessages = {}; // Store custom messages for welcome, leave, etc.
+let warnings = {}; // Store warnings for users
 
 // Register commands when the bot is ready
 client.on('ready', async () => {
@@ -26,59 +26,93 @@ client.on('ready', async () => {
 
   // Slash command registration
   const commands = [
+    // Economy Commands
     new SlashCommandBuilder()
-      .setName('kick')
-      .setDescription('Kick a user')
-      .addUserOption((option) => option.setName('target').setDescription('User to kick')),
-
+      .setName('balance')
+      .setDescription('Shows your current coin balance.'),
     new SlashCommandBuilder()
-      .setName('ban')
-      .setDescription('Ban a user')
-      .addUserOption((option) => option.setName('target').setDescription('User to ban')),
-
+      .setName('claim')
+      .setDescription('Claim coins!'),
+    new SlashCommandBuilder()
+      .setName('give')
+      .setDescription('Give coins to another user.')
+      .addUserOption(option => option.setName('target').setDescription('User to give coins to').setRequired(true))
+      .addIntegerOption(option => option.setName('amount').setDescription('Amount of coins to give').setRequired(true)),
+    
+    // Profile Commands
     new SlashCommandBuilder()
       .setName('profile')
-      .setDescription('Show your profile with level and coins'),
-
+      .setDescription('Shows your profile with level and coins'),
     new SlashCommandBuilder()
       .setName('marry')
-      .setDescription('Propose to a user')
-      .addUserOption((option) => option.setName('target').setDescription('User to propose to')),
+      .setDescription('Propose to a user.')
+      .addUserOption(option => option.setName('target').setDescription('User to propose to').setRequired(true)),
 
+    // Moderation Commands
     new SlashCommandBuilder()
-      .setName('poll')
-      .setDescription('Create a custom poll')
-      .addStringOption((option) => option.setName('question').setDescription('Poll question').setRequired(true))
-      .addStringOption((option) => option.setName('option1').setDescription('First option').setRequired(true))
-      .addStringOption((option) => option.setName('option2').setDescription('Second option').setRequired(true)),
+      .setName('kick')
+      .setDescription('Kick a user.')
+      .addUserOption(option => option.setName('target').setDescription('User to kick').setRequired(true)),
+    new SlashCommandBuilder()
+      .setName('ban')
+      .setDescription('Ban a user.')
+      .addUserOption(option => option.setName('target').setDescription('User to ban').setRequired(true)),
+    new SlashCommandBuilder()
+      .setName('warn')
+      .setDescription('Warn a user.')
+      .addUserOption(option => option.setName('target').setDescription('User to warn').setRequired(true))
+      .addStringOption(option => option.setName('reason').setDescription('Reason for warning').setRequired(true)),
+    
+    // Fun and Utility Commands
+    new SlashCommandBuilder()
+      .setName('coinflip')
+      .setDescription('Flip a coin and get heads or tails'),
+    new SlashCommandBuilder()
+      .setName('dice')
+      .setDescription('Roll a dice'),
+    new SlashCommandBuilder()
+      .setName('quote')
+      .setDescription('Add or show a random quote.')
+      .addStringOption(option => option.setName('quote').setDescription('Quote to add')),
+    new SlashCommandBuilder()
+      .setName('randomfact')
+      .setDescription('Get a random fun fact'),
+    new SlashCommandBuilder()
+      .setName('joke')
+      .setDescription('Get a random joke'),
 
+    // Custom Messages and Embed Management
     new SlashCommandBuilder()
       .setName('setwelcome')
-      .setDescription('Set a custom welcome message for the server')
-      .addStringOption((option) => option.setName('message').setDescription('Welcome message').setRequired(true)),
-
+      .setDescription('Set a custom welcome message (Admin Only)')
+      .addStringOption(option => option.setName('message').setDescription('The welcome message').setRequired(true)),
     new SlashCommandBuilder()
       .setName('setleave')
-      .setDescription('Set a custom leave message for the server')
-      .addStringOption((option) => option.setName('message').setDescription('Leave message').setRequired(true)),
-
+      .setDescription('Set a custom leave message (Admin Only)')
+      .addStringOption(option => option.setName('message').setDescription('The leave message').setRequired(true)),
     new SlashCommandBuilder()
       .setName('setembed')
-      .setDescription('Set a custom embed template for your server')
-      .addStringOption((option) => option.setName('embedtype').setDescription('Embed type to set').setRequired(true))
-      .addStringOption((option) => option.setName('embedmessage').setDescription('Embed message').setRequired(true)),
+      .setDescription('Set custom embeds for bot messages (Admin Only)')
+      .addStringOption(option => option.setName('type').setDescription('Type of embed (e.g., levelup, transfer)').setRequired(true))
+      .addStringOption(option => option.setName('message').setDescription('Custom embed message').setRequired(true)),
 
+    // Miscellaneous
     new SlashCommandBuilder()
-      .setName('setimage')
-      .setDescription('Set a custom image for the server')
-      .addStringOption((option) => option.setName('imageurl').setDescription('URL of the image').setRequired(true)),
-  ].map((command) => command.toJSON());
+      .setName('invite')
+      .setDescription('Get an invite link for the bot'),
+    new SlashCommandBuilder()
+      .setName('support')
+      .setDescription('Get the bot support link or documentation'),
+  ].map(command => command.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
   try {
     console.log('Registering slash commands...');
-    await rest.put(Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID), { body: commands });
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
+      { body: commands }
+    );
     console.log('Slash commands registered.');
   } catch (error) {
     console.error('Failed to register commands:', error);
@@ -86,33 +120,111 @@ client.on('ready', async () => {
 });
 
 // Slash command handling
-client.on('interactionCreate', async (interaction) => {
+client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const userId = interaction.user.id;
   const target = interaction.options.getUser('target');
+  const amount = interaction.options.getInteger('amount');
+  const quote = interaction.options.getString('quote');
+  const reason = interaction.options.getString('reason');
+  const type = interaction.options.getString('type');
+  const message = interaction.options.getString('message');
   const question = interaction.options.getString('question');
   const option1 = interaction.options.getString('option1');
   const option2 = interaction.options.getString('option2');
-  const embedType = interaction.options.getString('embedtype');
-  const embedMessage = interaction.options.getString('embedmessage');
-  const imageUrl = interaction.options.getString('imageurl');
+
+  if (interaction.commandName === 'balance') {
+    const balanceEmbed = new EmbedBuilder()
+      .setColor('#00FF00')
+      .setTitle(`${interaction.user.username}'s Balance`)
+      .setDescription(`You have **${coins[userId] || 0}** coins.`)
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [balanceEmbed] });
+  }
+
+  if (interaction.commandName === 'claim') {
+    coins[userId] += 100;
+    const claimEmbed = new EmbedBuilder()
+      .setColor('#FFD700')
+      .setTitle('Coin Claim')
+      .setDescription(`You claimed 100 coins! You now have **${coins[userId]}**.`)
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [claimEmbed] });
+  }
+
+  if (interaction.commandName === 'give') {
+    if (!target || !amount || isNaN(amount)) {
+      return interaction.reply("Usage: `/give @user amount`");
+    }
+
+    coins[userId] -= amount;
+    if (!coins[target.id]) coins[target.id] = 0;
+    coins[target.id] += amount;
+
+    const giveEmbed = new EmbedBuilder()
+      .setColor('#1E90FF')
+      .setTitle('Coin Transfer')
+      .setDescription(`You gave **${amount}** coins to ${target.tag}.`)
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [giveEmbed] });
+  }
+
+  if (interaction.commandName === 'warn') {
+    if (!warnings[target.id]) warnings[target.id] = [];
+    warnings[target.id].push(reason);
+
+    const warnEmbed = new EmbedBuilder()
+      .setColor('#FF0000')
+      .setTitle('User Warned')
+      .setDescription(`${target.tag} has been warned for: ${reason}.`)
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [warnEmbed] });
+  }
+
+  if (interaction.commandName === 'kick') {
+    if (!target) return interaction.reply('Please specify a user to kick.');
+
+    await target.kick('Kicked by bot');
+    const kickEmbed = new EmbedBuilder()
+      .setColor('#FF0000')
+      .setTitle('User Kicked')
+      .setDescription(`${target.tag} has been kicked from the server.`)
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [kickEmbed] });
+  }
+
+  if (interaction.commandName === 'ban') {
+    if (!target) return interaction.reply('Please specify a user to ban.');
+
+    await target.ban({ reason: 'Banned by bot' });
+    const banEmbed = new EmbedBuilder()
+      .setColor('#FF0000')
+      .setTitle('User Banned')
+      .setDescription(`${target.tag} has been banned from the server.`)
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [banEmbed] });
+  }
 
   if (interaction.commandName === 'profile') {
     const profileEmbed = new EmbedBuilder()
       .setColor('#00FF00')
       .setTitle(`${interaction.user.username}'s Profile`)
       .setDescription(`Level: ${levels[userId] || 1}\nCoins: ${coins[userId] || 0}\nRelationship: ${relationships[userId] || 'Single'}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
+      .setTimestamp();
 
     await interaction.reply({ embeds: [profileEmbed] });
   }
 
   if (interaction.commandName === 'marry') {
-    if (relationships[userId]) return interaction.reply({ content: 'You are already in a relationship!' });
-
-    if (!target) return interaction.reply({ content: 'You need to specify a user to propose to!' });
+    if (relationships[userId]) return interaction.reply('You are already in a relationship!');
+    if (!target) return interaction.reply('You need to specify a user to propose to!');
 
     relationships[userId] = `Married to ${target.tag}`;
     relationships[target.id] = `Married to ${interaction.user.tag}`;
@@ -121,129 +233,68 @@ client.on('interactionCreate', async (interaction) => {
       .setColor('#FF00FF')
       .setTitle('Marriage Proposal')
       .setDescription(`Congratulations! ${interaction.user.tag} and ${target.tag} are now married.`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
+      .setTimestamp();
 
     await interaction.reply({ embeds: [marriageEmbed] });
   }
 
-  if (interaction.commandName === 'poll') {
-    const pollEmbed = new EmbedBuilder()
-      .setColor('#0000FF')
-      .setTitle('Poll')
-      .setDescription(`**${question}**\n\n1️⃣ ${option1}\n2️⃣ ${option2}`)
-      .setTimestamp()
-      .setFooter({ text: 'Bot Powered by CoolBot' });
-
-    polls.push({ question, options: [option1, option2], votes: [0, 0] });
-
-    await interaction.reply({ embeds: [pollEmbed] });
-  }
-
   if (interaction.commandName === 'setwelcome') {
-    customEmbeds[interaction.guild.id] = { welcomeMessage: embedMessage };
-    await interaction.reply({ content: `Welcome message set!` });
+    if (!interaction.memberPermissions.has('ADMINISTRATOR')) return interaction.reply('You do not have permission to use this command.');
+    customMessages.welcome = message;
+    await interaction.reply('Custom welcome message set.');
   }
 
   if (interaction.commandName === 'setleave') {
-    customEmbeds[interaction.guild.id] = { leaveMessage: embedMessage };
-    await interaction.reply({ content: `Leave message set!` });
+    if (!interaction.memberPermissions.has('ADMINISTRATOR')) return interaction.reply('You do not have permission to use this command.');
+    customMessages.leave = message;
+    await interaction.reply('Custom leave message set.');
   }
 
   if (interaction.commandName === 'setembed') {
-    customEmbeds[interaction.guild.id] = { [embedType]: embedMessage };
-    await interaction.reply({ content: `${embedType} embed set!` });
+    if (!interaction.memberPermissions.has('ADMINISTRATOR')) return interaction.reply('You do not have permission to use this command.');
+    if (!type || !message) return interaction.reply('You need to specify a type and a message.');
+    customMessages[type] = message;
+    await interaction.reply(`Custom embed for ${type} set.`);
   }
 
-  if (interaction.commandName === 'setimage') {
-    customImages[interaction.guild.id] = imageUrl;
-    await interaction.reply({ content: `Custom image set!` });
-  }
-});
-
-// Prefix command handling
-client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.content.startsWith(prefix)) return;
-
-  // Simulate typing before replying
-  message.channel.sendTyping(); // Makes the bot appear as if it's typing
-
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-  const userId = message.author.id;
-
-  // Initialize if no data exists for user
-  if (!coins[userId]) coins[userId] = 0;
-  if (!levels[userId]) levels[userId] = 1;
-
-  // Increment XP for leveling
-  levels[userId] += 1; // Increment by 1 for each message
-  if (levels[userId] % 10 === 0) {
-    // Every 10 levels, send a special message
-    message.reply(`🎉 Congratulations ${message.author.username}! You've reached level ${levels[userId]}! 🎉`);
+  if (interaction.commandName === 'coinflip') {
+    const result = Math.random() > 0.5 ? 'Heads' : 'Tails';
+    await interaction.reply(`The coin flip result is: ${result}`);
   }
 
-  if (command === 'balance') {
-    setTimeout(() => {
-      const balanceEmbed = new EmbedBuilder()
-        .setColor('#00FF00')
-        .setTitle(`${message.author.username}'s Balance`)
-        .setDescription(`You have **${coins[userId]}** coins.`)
-        .setTimestamp()
-        .setFooter({ text: 'Bot Powered by CoolBot' });
-
-      message.reply({ embeds: [balanceEmbed] });
-    }, 2000);
+  if (interaction.commandName === 'dice') {
+    const roll = Math.floor(Math.random() * 6) + 1;
+    await interaction.reply(`You rolled a ${roll}`);
   }
 
-  if (command === 'claim') {
-    setTimeout(() => {
-      coins[userId] += 100;
-      saveCoins();
-
-      const claimEmbed = new EmbedBuilder()
-        .setColor('#FFD700')
-        .setTitle('Coin Claim')
-        .setDescription(`You claimed 100 coins! You now have **${coins[userId]}**.`)
-        .setTimestamp()
-        .setFooter({ text: 'Bot Powered by CoolBot' });
-
-      message.reply({ embeds: [claimEmbed] });
-    }, 2000);
-  }
-
-  if (command === 'give') {
-    const target = message.mentions.users.first();
-    const amount = parseInt(args[1]);
-
-    if (!target || isNaN(amount) || amount <= 0) {
-      return message.reply('Usage: `cgive @user 100`');
+  if (interaction.commandName === 'quote') {
+    if (quote) {
+      quotes.push(quote);
+      await interaction.reply('Quote added.');
+    } else {
+      const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+      await interaction.reply(`Here's a random quote: "${randomQuote}"`);
     }
+  }
 
-    if (!coins[target.id]) coins[target.id] = 0;
-    if (coins[userId] < amount) return message.reply("You don't have enough coins!");
+  if (interaction.commandName === 'randomfact') {
+    const facts = [
+      "Honey never spoils.",
+      "Bananas are berries, but strawberries aren't.",
+      "Octopuses have three hearts.",
+    ];
+    const randomFact = facts[Math.floor(Math.random() * facts.length)];
+    await interaction.reply(`Did you know? ${randomFact}`);
+  }
 
-    setTimeout(() => {
-      coins[userId] -= amount;
-      coins[target.id] += amount;
-      saveCoins();
-
-      const giveEmbed = new EmbedBuilder()
-        .setColor('#1E90FF')
-        .setTitle('Coin Transfer')
-        .setDescription(`You gave **${amount}** coins to ${target.tag}.`)
-        .setTimestamp()
-        .setFooter({ text: 'Bot Powered by CoolBot' });
-
-      message.reply({ embeds: [giveEmbed] });
-    }, 2000);
+  if (interaction.commandName === 'joke') {
+    const jokes = [
+      "Why don't skeletons fight each other? They don't have the guts!",
+      "Why don't eggs tell jokes? They might crack up.",
+    ];
+    const randomJoke = jokes[Math.floor(Math.random() * jokes.length)];
+    await interaction.reply(randomJoke);
   }
 });
 
-// Utility function to save user data to the database (placeholder)
-function saveCoins() {
-  // Implement your database save logic here
-}
-
-// Log the bot in
 client.login(process.env.TOKEN);
