@@ -1,15 +1,9 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField } = require('discord.js');
-const fs = require('fs');  // Import fs for file system operations
+const fs = require('fs');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField, EmbedBuilder } = require('discord.js');
 
-// Set up the coins file and functions
 const COINS_FILE = './coins.json';
-let coins = {};
-
-if (fs.existsSync(COINS_FILE)) {
-  coins = JSON.parse(fs.readFileSync(COINS_FILE));
-}
-
+let coins = fs.existsSync(COINS_FILE) ? JSON.parse(fs.readFileSync(COINS_FILE)) : {};
 function saveCoins() {
   fs.writeFileSync(COINS_FILE, JSON.stringify(coins, null, 2));
 }
@@ -23,18 +17,19 @@ const client = new Client({
   ]
 });
 
-const prefix = "c"; // Command prefix
+const prefix = 'c';
+let currentAnswer = null;
+const mathChannelId = '1359467591642648742';
 
 client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // Slash command registration
+  // Register slash commands
   const commands = [
     new SlashCommandBuilder()
       .setName('kick')
       .setDescription('Kick a user')
       .addUserOption(option => option.setName('target').setDescription('User to kick')),
-
     new SlashCommandBuilder()
       .setName('ban')
       .setDescription('Ban a user')
@@ -42,20 +37,22 @@ client.on('ready', async () => {
   ].map(command => command.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-
   try {
-    console.log('Registering slash commands...');
     await rest.put(
       Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
       { body: commands }
     );
     console.log('Slash commands registered.');
-  } catch (error) {
-    console.error('Failed to register commands:', error);
+  } catch (err) {
+    console.error(err);
   }
+
+  // Start math problem interval
+  sendMathProblem();
+  setInterval(sendMathProblem, 60 * 60 * 1000); // every hour
 });
 
-// Slash command handling
+// === Slash commands ===
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -64,27 +61,26 @@ client.on('interactionCreate', async interaction => {
 
   if (interaction.commandName === 'kick') {
     if (!member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-      return interaction.reply({ content: 'You can’t kick.', ephemeral: true });
+      return interaction.reply({ embeds: [errorEmbed("You can’t kick members.")], ephemeral: true });
     }
     const victim = interaction.guild.members.cache.get(target.id);
     if (victim) await victim.kick();
-    await interaction.reply(`${target.tag} was kicked.`);
+    interaction.reply({ embeds: [successEmbed(`${target.tag} was kicked.`)] });
   }
 
   if (interaction.commandName === 'ban') {
     if (!member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return interaction.reply({ content: 'You can’t ban.', ephemeral: true });
+      return interaction.reply({ embeds: [errorEmbed("You can’t ban members.")], ephemeral: true });
     }
     const victim = interaction.guild.members.cache.get(target.id);
     if (victim) await victim.ban();
-    await interaction.reply(`${target.tag} was banned.`);
+    interaction.reply({ embeds: [successEmbed(`${target.tag} was banned.`)] });
   }
 });
 
-// Prefix command handling
+// === Prefix commands ===
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.content.startsWith(prefix)) return;
-
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
   const userId = message.author.id;
@@ -92,54 +88,102 @@ client.on('messageCreate', async message => {
   const member = message.guild.members.cache.get(message.author.id);
   const victim = target ? message.guild.members.cache.get(target.id) : null;
 
-  // Initialize user's coins if not already
   if (!coins[userId]) coins[userId] = 0;
 
-  // === Moderation ===
+  // Moderation
   if (command === 'kick') {
-    if (!target) return message.reply('You need to mention a user.');
+    if (!target) return message.reply({ embeds: [errorEmbed("You must mention a user.")] });
     if (!member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-      return message.reply("You can't kick members.");
+      return message.reply({ embeds: [errorEmbed("You can’t kick members.")] });
     }
     if (victim) await victim.kick();
-    message.reply(`${target.tag} was kicked.`);
+    return message.reply({ embeds: [successEmbed(`${target.tag} was kicked.`)] });
   }
 
   if (command === 'ban') {
-    if (!target) return message.reply('You need to mention a user.');
+    if (!target) return message.reply({ embeds: [errorEmbed("You must mention a user.")] });
     if (!member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-      return message.reply("You can't ban members.");
+      return message.reply({ embeds: [errorEmbed("You can’t ban members.")] });
     }
     if (victim) await victim.ban();
-    message.reply(`${target.tag} was banned.`);
+    return message.reply({ embeds: [successEmbed(`${target.tag} was banned.`)] });
   }
 
-  // === Coins ===
+  // Economy
   if (command === 'balance') {
-    message.reply(`You have **${coins[userId]}** coins.`);
+    return message.reply({ embeds: [infoEmbed(`You have **${coins[userId]}** coins.`)] });
   }
 
   if (command === 'claim') {
     coins[userId] += 100;
     saveCoins();
-    message.reply(`You claimed 100 coins! You now have **${coins[userId]}**.`);
+    return message.reply({ embeds: [successEmbed(`You claimed 100 coins! New balance: **${coins[userId]}**.`)] });
   }
 
   if (command === 'give') {
     const amount = parseInt(args[1]);
     if (!target || isNaN(amount) || amount <= 0) {
-      return message.reply("Usage: `cgive @user 100`");
+      return message.reply({ embeds: [errorEmbed("Usage: `cgive @user 100`")] });
     }
 
     if (!coins[target.id]) coins[target.id] = 0;
-    if (coins[userId] < amount) return message.reply("You don't have enough coins!");
+    if (coins[userId] < amount) {
+      return message.reply({ embeds: [errorEmbed("You don't have enough coins!")] });
+    }
 
     coins[userId] -= amount;
     coins[target.id] += amount;
     saveCoins();
-
-    message.reply(`You gave **${amount}** coins to ${target.tag}.`);
+    return message.reply({ embeds: [successEmbed(`You gave **${amount}** coins to ${target.tag}.`)] });
   }
 });
+
+// === Math problem ===
+function sendMathProblem() {
+  const num1 = Math.floor(Math.random() * 50 + 1);
+  const num2 = Math.floor(Math.random() * 50 + 1);
+  const operator = ['+', '-', '*'][Math.floor(Math.random() * 3)];
+  currentAnswer = eval(`${num1} ${operator} ${num2}`);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Hourly Math Challenge!')
+    .setDescription(`Solve this: **${num1} ${operator} ${num2}**\nFirst correct answer wins **100 coins**!`)
+    .setColor('Yellow');
+
+  const channel = client.channels.cache.get(mathChannelId);
+  if (channel) channel.send({ embeds: [embed] });
+}
+
+client.on('messageCreate', async message => {
+  if (message.channel.id !== mathChannelId || message.author.bot || currentAnswer === null) return;
+
+  if (parseInt(message.content) === currentAnswer) {
+    const userId = message.author.id;
+    if (!coins[userId]) coins[userId] = 0;
+    coins[userId] += 100;
+    saveCoins();
+
+    const embed = new EmbedBuilder()
+      .setTitle('Correct!')
+      .setDescription(`${message.author} got it right and earned **100 coins**!`)
+      .setColor('Green');
+
+    message.channel.send({ embeds: [embed] });
+    currentAnswer = null;
+  }
+});
+
+// === Embed helper functions ===
+function successEmbed(text) {
+  return new EmbedBuilder().setDescription(text).setColor('Green');
+}
+
+function errorEmbed(text) {
+  return new EmbedBuilder().setDescription(text).setColor('Red');
+}
+
+function infoEmbed(text) {
+  return new EmbedBuilder().setDescription(text).setColor('Blue');
+}
 
 client.login(process.env.TOKEN);
