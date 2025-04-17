@@ -1,12 +1,48 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, PermissionsBitField } = require('discord.js');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers] });
-
-client.on('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
+const prefix = "c"; // Your command prefix
+
+client.on('ready', async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+
+  // Slash command registration
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('kick')
+      .setDescription('Kick a user')
+      .addUserOption(option => option.setName('target').setDescription('User to kick')),
+
+    new SlashCommandBuilder()
+      .setName('ban')
+      .setDescription('Ban a user')
+      .addUserOption(option => option.setName('target').setDescription('User to ban'))
+  ].map(command => command.toJSON());
+
+  const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+  try {
+    console.log('Registering slash commands...');
+    await rest.put(
+      Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
+      { body: commands }
+    );
+    console.log('Slash commands registered.');
+  } catch (error) {
+    console.error('Failed to register commands:', error);
+  }
+});
+
+// Slash command handling
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -14,17 +50,51 @@ client.on('interactionCreate', async interaction => {
   const member = interaction.guild.members.cache.get(interaction.user.id);
 
   if (interaction.commandName === 'kick') {
-    if (!member.permissions.has('KickMembers')) return interaction.reply({ content: 'You can’t kick.', ephemeral: true });
+    if (!member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+      return interaction.reply({ content: 'You can’t kick.', ephemeral: true });
+    }
     const victim = interaction.guild.members.cache.get(target.id);
     if (victim) await victim.kick();
     await interaction.reply(`${target.tag} was kicked.`);
   }
 
   if (interaction.commandName === 'ban') {
-    if (!member.permissions.has('BanMembers')) return interaction.reply({ content: 'You can’t ban.', ephemeral: true });
+    if (!member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+      return interaction.reply({ content: 'You can’t ban.', ephemeral: true });
+    }
     const victim = interaction.guild.members.cache.get(target.id);
     if (victim) await victim.ban();
     await interaction.reply(`${target.tag} was banned.`);
+  }
+});
+
+// Prefix command handling
+client.on('messageCreate', async message => {
+  if (message.author.bot || !message.content.startsWith(prefix)) return;
+
+  const args = message.content.slice(prefix.length).trim().split(/ +/);
+  const command = args.shift().toLowerCase();
+  const target = message.mentions.users.first();
+
+  if (!target) return message.reply('You need to mention a user.');
+
+  const member = message.guild.members.cache.get(message.author.id);
+  const victim = message.guild.members.cache.get(target.id);
+
+  if (command === 'kick') {
+    if (!member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+      return message.reply("You can't kick members.");
+    }
+    if (victim) await victim.kick();
+    message.reply(`${target.tag} was kicked.`);
+  }
+
+  if (command === 'ban') {
+    if (!member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+      return message.reply("You can't ban members.");
+    }
+    if (victim) await victim.ban();
+    message.reply(`${target.tag} was banned.`);
   }
 });
 
