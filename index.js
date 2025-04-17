@@ -97,5 +97,42 @@ client.on('messageCreate', async message => {
     message.reply(`${target.tag} was banned.`);
   }
 });
+client.on('messageCreate', async message => {
+  if (message.author.bot || !message.content.startsWith(prefix)) return;
+
+  const args = message.content.slice(prefix.length).trim().split(/ +/);
+  const command = args.shift().toLowerCase();
+  const userId = message.author.id;
+
+  if (!coins[userId]) coins[userId] = 0;
+
+  if (command === 'balance') {
+    message.reply(`You have **${coins[userId]}** coins.`);
+  }
+
+  if (command === 'claim') {
+    coins[userId] += 100;
+    saveCoins();
+    message.reply(`You claimed 100 coins! You now have **${coins[userId]}**.`);
+  }
+
+  if (command === 'give') {
+    const target = message.mentions.users.first();
+    const amount = parseInt(args[1]);
+
+    if (!target || isNaN(amount) || amount <= 0) {
+      return message.reply("Usage: `cgive @user 100`");
+    }
+
+    if (!coins[target.id]) coins[target.id] = 0;
+    if (coins[userId] < amount) return message.reply("You don't have enough coins!");
+
+    coins[userId] -= amount;
+    coins[target.id] += amount;
+    saveCoins();
+
+    message.reply(`You gave **${amount}** coins to ${target.tag}.`);
+  }
+});
 
 client.login(process.env.TOKEN);
