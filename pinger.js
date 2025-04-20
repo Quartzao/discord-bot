@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, PermissionsBitField } = require('discord.js');
 require('dotenv').config();
 
 const client = new Client({
@@ -14,7 +14,7 @@ const targetUserId = '1124259186621022229';
 let interval = null;
 
 client.on('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`[PINGER] Logged in as ${client.user.tag}`);
 });
 
 client.on('messageCreate', async (message) => {
@@ -23,11 +23,17 @@ client.on('messageCreate', async (message) => {
   const args = message.content.slice(prefix.length).trim().split(/ +/);
   const cmd = args.shift()?.toLowerCase();
 
+  // Check if the user has ADMINISTRATOR permission
+  const isAdmin = message.member.permissions.has(PermissionsBitField.Flags.Administrator);
+  if ((cmd === 'startping' || cmd === 'stopping') && !isAdmin) {
+    return message.reply("You need **Administrator** permission to use this command.");
+  }
+
   if (cmd === 'startping') {
     if (interval) return message.reply('Already pinging!');
     interval = setInterval(() => {
       message.channel.send(`<@${targetUserId}>`);
-    }, 500); // 0.5 seconds
+    }, 500);
     return message.reply('Started pinging.');
   }
 
