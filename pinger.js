@@ -33,7 +33,7 @@ client.on('messageCreate', async (message) => {
     if (interval) return message.reply('Already pinging!');
     interval = setInterval(() => {
       message.channel.send(`<@${targetUserId}>`);
-    }, 500);
+    }, 2000);
     return message.reply('Started pinging.');
   }
 
