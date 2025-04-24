@@ -196,7 +196,7 @@ client.on('messageCreate', async (msg) => {
     if (!isAdmin && !isOwner) return msg.reply({ content: "Admin or owner only!", allowedMentions: { repliedUser: false } });
     try {
       await msg.channel.bulkDelete(10, true);
-      const reply = await msg.channel.send({ content: "Destroyed 10 messages." });
+      const reply = await msg.channel.send({ content: "https://tenor.com/view/jojo-giogio-requiem-jjba-gif-14649703" });
       setTimeout(() => reply.delete().catch(() => {}), 3000);
     } catch (err) {
       const error = await msg.reply({ content: "Failed to delete messages." });
