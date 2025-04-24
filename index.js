@@ -1,14 +1,14 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  SlashCommandBuilder, 
-  REST, 
-  Routes, 
-  EmbedBuilder, 
-  InteractionType, 
-  Partials 
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  REST,
+  Routes,
+  EmbedBuilder,
+  InteractionType,
+  Partials,
+  PermissionFlagsBits
 } = require('discord.js');
-const fs = require('fs');
 require('dotenv').config();
 
 const client = new Client({
@@ -32,6 +32,7 @@ const customImages = {};
 const embedTemplates = {};
 const mathAnswers = {};
 
+// HOURLY MATH CHALLENGE
 const questions = [
   { q: "What is 12 + 7?", a: "19" },
   { q: "Solve 9 * 3", a: "27" },
@@ -39,7 +40,6 @@ const questions = [
   { q: "15 - 9 equals?", a: "6" }
 ];
 
-// Random hourly math quiz
 setInterval(() => {
   client.guilds.cache.forEach(guild => {
     const channel = guild.systemChannel;
@@ -54,8 +54,9 @@ setInterval(() => {
       channel.send({ embeds: [embed] });
     }
   });
-}, 1000 * 60 * 60); // 1 hour
-// Slash Commands
+}, 1000 * 60 * 60); // every hour
+
+// SLASH COMMAND SETUP
 const slashCommands = [
   new SlashCommandBuilder().setName('balance').setDescription('Check your coin balance.'),
   new SlashCommandBuilder().setName('claim').setDescription('Claim your daily coins.'),
@@ -66,20 +67,16 @@ const slashCommands = [
     .addUserOption(opt => opt.setName('target').setDescription('User').setRequired(true)),
   new SlashCommandBuilder().setName('marry').setDescription('Propose to another user.')
     .addUserOption(opt => opt.setName('target').setDescription('User').setRequired(true)),
-  new SlashCommandBuilder().setName('poll').setDescription('Create a quick yes/no poll.')
+  new SlashCommandBuilder().setName('poll').setDescription('Create a yes/no poll.')
     .addStringOption(opt => opt.setName('question').setDescription('Poll question').setRequired(true)),
   new SlashCommandBuilder().setName('kick').setDescription('Kick a user.')
     .addUserOption(opt => opt.setName('target').setDescription('User').setRequired(true)),
   new SlashCommandBuilder().setName('ban').setDescription('Ban a user.')
     .addUserOption(opt => opt.setName('target').setDescription('User').setRequired(true)),
-  new SlashCommandBuilder().setName('level').setDescription('Check your level and XP.'),
-  new SlashCommandBuilder().setName('leaderboard').setDescription('Check the top coin holders in the server.'),
-  new SlashCommandBuilder().setName('math').setDescription('Answer a math question to win coins.')
-    .addStringOption(opt => opt.setName('answer').setDescription('Your answer to the math question').setRequired(true)),
-  new SlashCommandBuilder().setName('setwelcome').setDescription('Set a custom welcome message.')
-    .addStringOption(opt => opt.setName('message').setDescription('Welcome message').setRequired(true)),
-  new SlashCommandBuilder().setName('setleave').setDescription('Set a custom leave message.')
-    .addStringOption(opt => opt.setName('message').setDescription('Leave message').setRequired(true)),
+  new SlashCommandBuilder().setName('level').setDescription('Check your level.'),
+  new SlashCommandBuilder().setName('leaderboard').setDescription('Top coin holders.'),
+  new SlashCommandBuilder().setName('math').setDescription('Answer math challenge.')
+    .addStringOption(opt => opt.setName('answer').setDescription('Answer').setRequired(true)),
 ].map(cmd => cmd.toJSON());
 
 client.on('ready', async () => {
@@ -95,165 +92,123 @@ client.on('ready', async () => {
   }
 });
 
-// Command Handling
-client.on('interactionCreate', async (interaction) => {
+// SLASH COMMAND HANDLER
+client.on('interactionCreate', async interaction => {
   if (interaction.type !== InteractionType.ApplicationCommand) return;
-
   const { commandName, user, options } = interaction;
   const userId = user.id;
 
-  if (commandName === 'balance') {
-    const embed = new EmbedBuilder()
-      .setColor('Green')
-      .setTitle(`${user.username}'s Balance`)
-      .setDescription(`You have **${coins[userId] || 0}** coins.`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
+  const embed = new EmbedBuilder().setTimestamp();
+
+  switch (commandName) {
+    case 'balance':
+      embed.setColor('Green').setTitle(`${user.username}'s Balance`).setDescription(`You have **${coins[userId] || 0}** coins.`);
+      break;
+
+    case 'claim':
+      const today = new Date().toDateString();
+      if (dailyClaims[userId] === today)
+        return interaction.reply({ content: "You've already claimed today!", ephemeral: true });
+      const amount = Math.floor(Math.random() * 100) + 50;
+      coins[userId] = (coins[userId] || 0) + amount;
+      dailyClaims[userId] = today;
+      embed.setColor('Gold').setTitle('Daily Claim').setDescription(`You claimed **${amount}** coins!`);
+      break;
+
+    case 'give':
+      const target = options.getUser('target');
+      const amt = options.getInteger('amount');
+      if ((coins[userId] || 0) < amt)
+        return interaction.reply({ content: "Not enough coins!", ephemeral: true });
+      coins[userId] -= amt;
+      coins[target.id] = (coins[target.id] || 0) + amt;
+      embed.setColor('Green').setTitle('Transfer').setDescription(`You gave **${amt}** coins to **${target.username}**.`);
+      break;
+
+    case 'warn':
+      const warned = options.getUser('target');
+      warnings[warned.id] = (warnings[warned.id] || 0) + 1;
+      embed.setColor('Red').setTitle('User Warned').setDescription(`${warned.username} warned. Total: **${warnings[warned.id]}**`);
+      break;
+
+    case 'marry':
+      const partner = options.getUser('target');
+      if (marriages[userId] || marriages[partner.id])
+        return interaction.reply({ content: "One of you is already married!", ephemeral: true });
+      marriages[userId] = partner.id;
+      marriages[partner.id] = userId;
+      embed.setColor('Pink').setTitle('Marriage').setDescription(`${user.username} and ${partner.username} are now married!`);
+      break;
+
+    case 'poll':
+      const question = options.getString('question');
+      const pollEmbed = new EmbedBuilder()
+        .setColor('Blue')
+        .setTitle('Poll')
+        .setDescription(question)
+        .setFooter({ text: `Poll by ${user.username}` })
+        .setTimestamp();
+      const msg = await interaction.reply({ embeds: [pollEmbed], fetchReply: true });
+      return await Promise.all([msg.react('✅'), msg.react('❌')]);
+
+    case 'kick':
+    case 'ban':
+      const member = await interaction.guild.members.fetch(options.getUser('target').id);
+      if (commandName === 'kick') await member.kick('Kicked by bot');
+      else await member.ban({ reason: 'Banned by bot' });
+      embed.setColor('Red').setTitle(`User ${commandName === 'kick' ? 'Kicked' : 'Banned'}`).setDescription(`${member.user.username} has been ${commandName}ed.`);
+      break;
+
+    case 'level':
+      embed.setColor('Purple').setTitle(`${user.username}'s Level`).setDescription(`Level: **${levels[userId] || 0}**`);
+      break;
+
+    case 'leaderboard':
+      const top = Object.entries(coins).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      const lbText = top.map(([id, bal], i) => `${i + 1}. <@${id}> - ${bal} coins`).join('\n');
+      embed.setColor('Gold').setTitle('Leaderboard').setDescription(lbText || "No data yet.");
+      break;
+
+    case 'math':
+      const ans = options.getString('answer');
+      if (mathAnswers[interaction.guild.id] === ans) {
+        coins[userId] = (coins[userId] || 0) + 100;
+        return interaction.reply({ content: "Correct! You earned 100 coins.", ephemeral: true });
+      } else {
+        return interaction.reply({ content: "Incorrect answer!", ephemeral: true });
+      }
   }
 
-  if (commandName === 'claim') {
-    const today = new Date().toDateString();
-    if (dailyClaims[userId] === today) {
-      return interaction.reply({ content: "You've already claimed today!", ephemeral: true });
-    }
-
-    const amount = Math.floor(Math.random() * 100) + 50;
-    coins[userId] = (coins[userId] || 0) + amount;
-    dailyClaims[userId] = today;
-
-    const embed = new EmbedBuilder()
-      .setColor('Gold')
-      .setTitle('Daily Claim')
-      .setDescription(`You claimed **${amount}** coins!`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'give') {
-    const target = options.getUser('target');
-    const amount = options.getInteger('amount');
-    if ((coins[userId] || 0) < amount) {
-      return interaction.reply({ content: "You don't have enough coins!", ephemeral: true });
-    }
-
-    coins[userId] -= amount;
-    coins[target.id] = (coins[target.id] || 0) + amount;
-
-    const embed = new EmbedBuilder()
-      .setColor('Green')
-      .setTitle('Transfer Successful')
-      .setDescription(`You gave **${amount}** coins to **${target.username}**.`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'warn') {
-    const target = options.getUser('target');
-    warnings[target.id] = (warnings[target.id] || 0) + 1;
-
-    const embed = new EmbedBuilder()
-      .setColor('Red')
-      .setTitle('User Warned')
-      .setDescription(`${target.username} has been warned. Total: **${warnings[target.id]}**`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'marry') {
-    const target = options.getUser('target');
-    if (marriages[userId] || marriages[target.id]) {
-      return interaction.reply({ content: "One of you is already married!", ephemeral: true });
-    }
-
-    marriages[userId] = target.id;
-    marriages[target.id] = userId;
-
-    const embed = new EmbedBuilder()
-      .setColor('Pink')
-      .setTitle('Marriage Proposal Accepted!')
-      .setDescription(`${user.username} and ${target.username} are now married!`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'poll') {
-    const question = options.getString('question');
-    const embed = new EmbedBuilder()
-      .setColor('Blue')
-      .setTitle('Poll')
-      .setDescription(question)
-      .setFooter({ text: `Poll by ${user.username}` })
-      .setTimestamp();
-
-    const pollMsg = await interaction.reply({ embeds: [embed], fetchReply: true });
-    await pollMsg.react('✅');
-    await pollMsg.react('❌');
-  }
-
-  if (commandName === 'kick') {
-    const target = options.getUser('target');
-    const member = await interaction.guild.members.fetch(target.id);
-    await member.kick('Kicked by bot command');
-
-    const embed = new EmbedBuilder()
-      .setColor('Red')
-      .setTitle('User Kicked')
-      .setDescription(`${target.username} has been kicked.`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'ban') {
-    const target = options.getUser('target');
-    const member = await interaction.guild.members.fetch(target.id);
-    await member.ban({ reason: 'Banned by bot command' });
-
-    const embed = new EmbedBuilder()
-      .setColor('DarkRed')
-      .setTitle('User Banned')
-      .setDescription(`${target.username} has been banned.`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'level') {
-    const level = levels[userId] || 0;
-    const embed = new EmbedBuilder()
-      .setColor('Purple')
-      .setTitle(`${user.username}'s Level`)
-      .setDescription(`You are currently at level **${level}**.`)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'leaderboard') {
-    const leaderboard = Object.entries(coins).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    const leaderboardText = leaderboard.map(([userId, balance], index) => `${index + 1}. <@${userId}> - ${balance} coins`).join('\n');
-
-    const embed = new EmbedBuilder()
-      .setColor('Gold')
-      .setTitle('Coin Leaderboard')
-      .setDescription(leaderboardText)
-      .setTimestamp();
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'math') {
-    const answer = options.getString('answer');
-    if (mathAnswers[interaction.guild.id] === answer) {
-      coins[userId] = (coins[userId] || 0) + 100;
-      return interaction.reply({ content: "Correct! You've earned 100 coins.", ephemeral: true });
-    } else {
-      return interaction.reply({ content: "Incorrect answer! Try again next time.", ephemeral: true });
-    }
-  }
+  if (embed.data.title) interaction.reply({ embeds: [embed] });
 });
 
+// MESSAGE COMMANDS
 client.on('messageCreate', async (msg) => {
-  if (msg.author.bot || !msg.content.startsWith(prefix)) return;
+  if (msg.author.bot) return;
+
+  const content = msg.content.trim().toLowerCase();
+  const userId = msg.author.id;
+
+  // No Prefix: "destroy" command
+  if (content === 'destroy') {
+    const isAdmin = msg.member.permissions.has(PermissionFlagsBits.Administrator);
+    const isOwner = msg.guild.ownerId === msg.author.id;
+    if (!isAdmin && !isOwner) return msg.reply({ content: "Admin or owner only!", allowedMentions: { repliedUser: false } });
+    try {
+      await msg.channel.bulkDelete(10, true);
+      const reply = await msg.channel.send({ content: "Destroyed 10 messages." });
+      setTimeout(() => reply.delete().catch(() => {}), 3000);
+    } catch (err) {
+      const error = await msg.reply({ content: "Failed to delete messages." });
+      setTimeout(() => error.delete().catch(() => {}), 3000);
+    }
+    return;
+  }
+
+  // Prefix commands
+  if (!msg.content.startsWith(prefix)) return;
   const args = msg.content.slice(prefix.length).trim().split(/ +/);
   const cmd = args.shift()?.toLowerCase();
-  const userId = msg.author.id;
 
   if (cmd === 'balance') {
     const embed = new EmbedBuilder()
@@ -266,14 +221,10 @@ client.on('messageCreate', async (msg) => {
 
   if (cmd === 'claim') {
     const today = new Date().toDateString();
-    if (dailyClaims[userId] === today) {
-      return msg.reply("You've already claimed your daily coins!");
-    }
-
+    if (dailyClaims[userId] === today) return msg.reply("Already claimed today!");
     const amount = Math.floor(Math.random() * 100) + 50;
     coins[userId] = (coins[userId] || 0) + amount;
     dailyClaims[userId] = today;
-
     const embed = new EmbedBuilder()
       .setColor('Gold')
       .setTitle('Daily Claim')
@@ -285,24 +236,16 @@ client.on('messageCreate', async (msg) => {
   if (cmd === 'give') {
     const target = msg.mentions.users.first();
     const amount = parseInt(args[1]);
-    if (!target || isNaN(amount) || amount <= 0) {
-      return msg.reply("Usage: c!give @user <amount>");
-    }
-
-    if ((coins[userId] || 0) < amount) {
-      return msg.reply("You don't have enough coins.");
-    }
-
+    if (!target || isNaN(amount) || amount <= 0) return msg.reply("Usage: c!give @user <amount>");
+    if ((coins[userId] || 0) < amount) return msg.reply("You don't have enough coins.");
     coins[userId] -= amount;
     coins[target.id] = (coins[target.id] || 0) + amount;
-
     const embed = new EmbedBuilder()
       .setColor('Green')
       .setTitle('Transfer Successful')
       .setDescription(`You gave **${amount}** coins to **${target.username}**.`)
       .setTimestamp();
     return msg.reply({ embeds: [embed] });
-    require('./destroyer.js')(client);
   }
 });
 
