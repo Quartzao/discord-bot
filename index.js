@@ -197,7 +197,7 @@ client.on('messageCreate', async (msg) => {
     try {
       await msg.channel.bulkDelete(10, true);
       const reply = await msg.channel.send({ content: "https://tenor.com/view/jojo-giogio-requiem-jjba-gif-14649703" });
-      setTimeout(() => reply.delete().catch(() => {}), 3000);
+      setTimeout(() => reply.delete().catch(() => {}), 1500);
     } catch (err) {
       const error = await msg.reply({ content: "Failed to delete messages." });
       setTimeout(() => error.delete().catch(() => {}), 3000);
