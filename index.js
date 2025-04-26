@@ -93,6 +93,9 @@ client.on('ready', async () => {
   }
 });
 
+// Log in to Discord with your app's token
+client.login(process.env.TOKEN);
+
 // SLASH COMMAND HANDLER
 client.on('interactionCreate', async interaction => {
   if (interaction.type !== InteractionType.ApplicationCommand) return;
@@ -196,7 +199,8 @@ client.on('messageCreate', async (msg) => {
     const isOwner = msg.guild.ownerId === msg.author.id;
     if (!isAdmin && !isOwner) return msg.reply({ content: "Admin or owner only!", allowedMentions: { repliedUser: false } });
     try {
-      await msg.channel.bulkDelete(10, true);
+      const messagesToDelete = await msg.channel.messages.fetch({ limit: 10 });
+      await msg.channel.bulkDelete(messagesToDelete, true);
       const reply = await msg.channel.send({ content: "https://tenor.com/view/jojo-giogio-requiem-jjba-gif-14649703" });
       setTimeout(() => reply.delete().catch(() => {}), 1500);
     } catch (err) {
@@ -208,4 +212,8 @@ client.on('messageCreate', async (msg) => {
 
   // Prefix commands
   if (!msg.content.startsWith(prefix)) return;
-  const
+  const args = msg.content.slice(prefix.length).trim().split(/ +/);
+  const cmd = args.shift()?.toLowerCase();
+
+  // Other command handling...
+});
