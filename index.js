@@ -82,9 +82,8 @@ const slashCommands = [
 client.on('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
   try {
-    // Registering slash commands globally
     await rest.put(
-      Routes.applicationCommands(client.user.id), // Global registration
+      Routes.applicationCommands(client.user.id),
       { body: slashCommands }
     );
     console.log(`Bot ready as ${client.user.tag}`);
@@ -93,7 +92,6 @@ client.on('ready', async () => {
   }
 });
 
-// Log in to Discord with your app's token
 client.login(process.env.TOKEN);
 
 // SLASH COMMAND HANDLER
@@ -197,14 +195,26 @@ client.on('messageCreate', async (msg) => {
   if (content === 'destroy') {
     const isAdmin = msg.member.permissions.has(PermissionFlagsBits.Administrator);
     const isOwner = msg.guild.ownerId === msg.author.id;
-    if (!isAdmin && !isOwner) return msg.reply({ content: "Admin or owner only!", allowedMentions: { repliedUser: false } });
+
+    if (!isAdmin && !isOwner) {
+      return msg.reply({ content: "Admin or owner only!", allowedMentions: { repliedUser: false } });
+    }
+
     try {
-      const messagesToDelete = await msg.channel.messages.fetch({ limit: 10 });
-      await msg.channel.bulkDelete(messagesToDelete, true);
+      const fetchedMessages = await msg.channel.messages.fetch({ limit: 10 });
+      const filteredMessages = fetchedMessages.filter(m => !m.pinned && (Date.now() - m.createdTimestamp) < 1209600000);
+
+      if (filteredMessages.size === 0) {
+        return msg.reply({ content: "No recent messages to destroy." });
+      }
+
+      await msg.channel.bulkDelete(filteredMessages, true);
+
       const reply = await msg.channel.send({ content: "https://tenor.com/view/jojo-giogio-requiem-jjba-gif-14649703" });
       setTimeout(() => reply.delete().catch(() => {}), 1500);
     } catch (err) {
-      const error = await msg.reply({ content: "Failed to delete messages." });
+      console.error('Destroy command error:', err);
+      const error = await msg.reply({ content: "Failed to destroy messages." });
       setTimeout(() => error.delete().catch(() => {}), 3000);
     }
     return;
