@@ -82,8 +82,9 @@ const slashCommands = [
 client.on('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
   try {
+    // Registering slash commands globally
     await rest.put(
-      Routes.applicationGuildCommands(client.user.id, process.env.GUILD_ID),
+      Routes.applicationCommands(client.user.id), // Global registration
       { body: slashCommands }
     );
     console.log(`Bot ready as ${client.user.tag}`);
@@ -207,46 +208,4 @@ client.on('messageCreate', async (msg) => {
 
   // Prefix commands
   if (!msg.content.startsWith(prefix)) return;
-  const args = msg.content.slice(prefix.length).trim().split(/ +/);
-  const cmd = args.shift()?.toLowerCase();
-
-  if (cmd === 'balance') {
-    const embed = new EmbedBuilder()
-      .setColor('Green')
-      .setTitle(`${msg.author.username}'s Balance`)
-      .setDescription(`You have **${coins[userId] || 0}** coins.`)
-      .setTimestamp();
-    return msg.reply({ embeds: [embed] });
-  }
-
-  if (cmd === 'claim') {
-    const today = new Date().toDateString();
-    if (dailyClaims[userId] === today) return msg.reply("Already claimed today!");
-    const amount = Math.floor(Math.random() * 100) + 50;
-    coins[userId] = (coins[userId] || 0) + amount;
-    dailyClaims[userId] = today;
-    const embed = new EmbedBuilder()
-      .setColor('Gold')
-      .setTitle('Daily Claim')
-      .setDescription(`You claimed **${amount}** coins!`)
-      .setTimestamp();
-    return msg.reply({ embeds: [embed] });
-  }
-
-  if (cmd === 'give') {
-    const target = msg.mentions.users.first();
-    const amount = parseInt(args[1]);
-    if (!target || isNaN(amount) || amount <= 0) return msg.reply("Usage: c!give @user <amount>");
-    if ((coins[userId] || 0) < amount) return msg.reply("You don't have enough coins.");
-    coins[userId] -= amount;
-    coins[target.id] = (coins[target.id] || 0) + amount;
-    const embed = new EmbedBuilder()
-      .setColor('Green')
-      .setTitle('Transfer Successful')
-      .setDescription(`You gave **${amount}** coins to **${target.username}**.`)
-      .setTimestamp();
-    return msg.reply({ embeds: [embed] });
-  }
-});
-
-client.login(process.env.TOKEN);
+  const
