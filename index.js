@@ -30,6 +30,7 @@ const levels = {};
 const welcomeSettings = {};
 const customImages = {};
 const embedTemplates = {};
+const mathChallenges = {};
 
 // SLASH COMMAND SETUP
 const slashCommands = [
