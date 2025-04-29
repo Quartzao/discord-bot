@@ -124,6 +124,7 @@ client.on('messageCreate', async (msg) => {
       const fetchedMessages = await msg.channel.messages.fetch({ limit: 10 });
       const filteredMessages = fetchedMessages.filter(m => !m.pinned && (Date.now() - m.createdTimestamp) < 1209600000);
 
+      console.log(`Filtered messages count: ${filteredMessages.size}`); // Add this line for debugging
       if (filteredMessages.size === 0) {
         return msg.reply({ content: "No recent messages to destroy." });
       }
@@ -135,16 +136,5 @@ client.on('messageCreate', async (msg) => {
       setTimeout(() => reply.delete().catch(() => {}), 1500);
     } catch (err) {
       console.error('Destroy error:', err);
-      const error = await msg.reply({ content: "Failed to destroy messages." });
-      setTimeout(() => error.delete().catch(() => {}), 3000);
-    }
-    return;
-  }
-
-  // Prefix commands (e.g., c!balance etc)
-  if (!msg.content.startsWith(prefix)) return;
-  const args = msg.content.slice(prefix.length).trim().split(/ +/);
-  const cmd = args.shift()?.toLowerCase();
-
-  // You can add prefix commands here later if you want
-});
+      const error = await msg
+
