@@ -9,6 +9,9 @@
   "keywords": ["discord", "bot", "discord.js"],
   "author": "Ali",
   "license": "MIT",
+  "engines": {
+    "node": "16.x"
+  },
   "dependencies": {
     "discord.js": "^14.13.0",
     "dotenv": "^16.3.1",
