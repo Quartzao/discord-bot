@@ -1,14 +1,6 @@
-const {
-  Client,
-  GatewayIntentBits,
-  SlashCommandBuilder,
-  REST,
-  Routes,
-  EmbedBuilder,
-  InteractionType,
-  Partials,
-  PermissionFlagsBits
-} = require('discord.js');
+const express = require('express');
+const app = express();
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, InteractionType, Partials, PermissionFlagsBits } = require('discord.js');
 require('dotenv').config();
 
 const client = new Client({
@@ -22,18 +14,14 @@ const client = new Client({
 });
 
 const prefix = "c!";
-const coins = {};
-const warnings = {};
-const dailyClaims = {};
-const marriages = {};
-const levels = {};
-const welcomeSettings = {};
-const customImages = {};
-const embedTemplates = {};
-const mathChallenges = {};
-const crossbanToggles = {}; // New: crossban toggle per guild
+const coins = {}, warnings = {}, dailyClaims = {}, marriages = {}, levels = {}, welcomeSettings = {}, customImages = {}, embedTemplates = {}, mathChallenges = {}, cooldowns = new Set();
+const crossBanServers = new Set();
 
-const cooldowns = new Set();
+const FLAGGED_SERVER_ID = '1242213647061614803';
+
+// Web server to keep Glitch project alive
+app.get('/', (req, res) => res.send('Bot is alive!'));
+app.listen(3000, () => console.log('Web server running.'));
 
 const slashCommands = [
   new SlashCommandBuilder().setName('balance').setDescription('Check your coin balance.'),
@@ -55,9 +43,7 @@ const slashCommands = [
   new SlashCommandBuilder().setName('leaderboard').setDescription('Top coin holders.'),
   new SlashCommandBuilder().setName('math').setDescription('Answer a math challenge manually.')
     .addStringOption(opt => opt.setName('answer').setDescription('Your math answer').setRequired(true)),
-  new SlashCommandBuilder().setName('crossban-toggle') // NEW command
-    .setDescription('Toggle auto cross-server bans on or off for this server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('crossban-toggle').setDescription('Toggle auto banning of users in a flagged server.'),
 ].map(cmd => cmd.toJSON());
 
 client.on('ready', async () => {
@@ -70,38 +56,28 @@ client.on('ready', async () => {
   }
 });
 
-client.login(process.env.TOKEN);
-
 client.on('interactionCreate', async interaction => {
   if (interaction.type !== InteractionType.ApplicationCommand) return;
   const { commandName, user, options } = interaction;
   const userId = user.id;
+  const guildId = interaction.guild?.id;
   const embed = new EmbedBuilder().setTimestamp();
 
-  switch (commandName) {
-    case 'crossban-toggle': {
-      const guildId = interaction.guildId;
-      crossbanToggles[guildId] = !crossbanToggles[guildId];
-      const state = crossbanToggles[guildId] ? 'enabled ✅' : 'disabled ❌';
-
-      await interaction.reply({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle('Crossban Toggled')
-            .setDescription(`Auto cross-server banning is now **${state}**.`)
-            .setColor(crossbanToggles[guildId] ? 0x00FF00 : 0xFF0000)
-            .setTimestamp()
-        ]
-      });
-      break;
+  if (commandName === 'crossban-toggle') {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'Only admins can toggle this.', ephemeral: true });
     }
-
-    // Add other command logic here (balance, claim, give, warn, etc.)
+    if (crossBanServers.has(guildId)) {
+      crossBanServers.delete(guildId);
+      embed.setTitle('Auto cross-server banning is now disabled ❌.');
+    } else {
+      crossBanServers.add(guildId);
+      embed.setTitle('Auto cross-server banning is now enabled ✅.');
+    }
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 
-  if (embed.data.title) {
-    interaction.reply({ embeds: [embed] });
-  }
+  // Add other slash commands here...
 });
 
 client.on('messageCreate', async (msg) => {
@@ -113,32 +89,22 @@ client.on('messageCreate', async (msg) => {
   if (content === 'destroy') {
     const isAdmin = msg.member.permissions.has(PermissionFlagsBits.Administrator);
     const isOwner = msg.guild.ownerId === msg.author.id;
+    if (!isAdmin && !isOwner) return msg.reply("Only admins or server owners can use 'destroy'!");
 
-    if (!isAdmin && !isOwner) {
-      return msg.reply({ content: "Only server admins or owners can use 'destroy'!", allowedMentions: { repliedUser: false } });
-    }
-
-    if (cooldowns.has(msg.guild.id)) {
-      return msg.reply({ content: "Please wait before using 'destroy' again.", allowedMentions: { repliedUser: false } });
-    }
-
+    if (cooldowns.has(msg.guild.id)) return msg.reply("Please wait before using 'destroy' again.");
     cooldowns.add(msg.guild.id);
     setTimeout(() => cooldowns.delete(msg.guild.id), 30000);
 
     if (!msg.guild.members.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
-      return msg.reply({ content: "I don't have permission to delete messages.", allowedMentions: { repliedUser: false } });
+      return msg.reply("I don't have permission to delete messages.");
     }
 
     try {
       const fetchedMessages = await msg.channel.messages.fetch({ limit: 10 });
       const filteredMessages = fetchedMessages.filter(m => !m.pinned && (Date.now() - m.createdTimestamp) < 1209600000);
-
-      if (filteredMessages.size === 0) {
-        return msg.reply({ content: "No recent messages to destroy." });
-      }
-
+      if (filteredMessages.size === 0) return msg.reply("No recent messages to destroy.");
       const deletedMessages = await msg.channel.bulkDelete(filteredMessages, true);
-      const reply = await msg.channel.send({ content: `Successfully destroyed ${deletedMessages.size} message(s).` });
+      const reply = await msg.channel.send(`Successfully destroyed ${deletedMessages.size} message(s).`);
       setTimeout(() => reply.delete().catch(() => {}), 1500);
     } catch (err) {
       console.error('Destroy error:', err);
@@ -146,26 +112,28 @@ client.on('messageCreate', async (msg) => {
   }
 });
 
-// AUTO-BAN SYSTEM
-const FLAGGED_SERVER_ID = '1242213647061614803';
-
+// Cross-server ban logic
 client.on('guildMemberAdd', async (member) => {
-  if (member.guild.id !== FLAGGED_SERVER_ID) return;
+  try {
+    const userId = member.id;
 
-  console.log(`[⚠️ DETECTED] ${member.user.tag} joined the flagged server.`);
-
-  for (const [guildId, guild] of client.guilds.cache) {
-    if (guildId === FLAGGED_SERVER_ID) continue;
-    if (!crossbanToggles[guildId]) continue;
-
-    try {
-      const target = await guild.members.fetch(member.id);
-      await target.ban({
-        reason: 'Auto-banned: joined flagged server.'
-      });
-      console.log(`✅ Banned ${member.user.tag} from ${guild.name}`);
-    } catch {
-      // Skip if user not in guild or can't be banned
+    // Check if they joined the flagged server
+    if (member.guild.id === FLAGGED_SERVER_ID) {
+      const user = member.user;
+      for (const [guildId, guild] of client.guilds.cache) {
+        if (guild.id !== FLAGGED_SERVER_ID && crossBanServers.has(guild.id)) {
+          try {
+            await guild.members.ban(userId, { reason: 'User joined flagged server.' });
+            console.log(`Banned ${user.tag} from ${guild.name}`);
+          } catch (err) {
+            console.error(`Failed to ban ${user.tag} in ${guild.name}:`, err.message);
+          }
+        }
+      }
     }
+  } catch (err) {
+    console.error('Cross-ban error:', err);
   }
 });
+
+client.login(process.env.TOKEN);
